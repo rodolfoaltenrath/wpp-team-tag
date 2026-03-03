@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "wpp-team-tag",
+  "description": "Prefixa mensagens do WhatsApp Web com o perfil selecionado.",
+  "version": "0.1.0",
+  "permissions": ["storage"],
+  "host_permissions": ["https://web.whatsapp.com/*"],
+  "action": {
+    "default_title": "WPP Team Tag",
+    "default_popup": "src/popup/index.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["src/content/content.ts"],
+      "run_at": "document_idle"
+    }
+  ]
+}
