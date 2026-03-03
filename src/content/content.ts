@@ -1,92 +1,155 @@
-import { profiles } from "../shared/profiles";
-import { getProfile, STORAGE_KEY } from "../shared/storage";
-import { findComposer, readComposerText, writeComposerText } from "./wa";
+import {
+  DEFAULT_PROFILE_ID,
+  cloneDefaultProfiles,
+  getEffectiveProfileName,
+  isKnownProfileId,
+  normalizeProfiles,
+  type Profile,
+} from "../shared/profiles";
+import { getProfile, getProfiles, PROFILES_STORAGE_KEY, STORAGE_KEY } from "../shared/storage";
+import {
+  PAGE_BRIDGE_REQUEST_EVENT,
+  PAGE_BRIDGE_RESPONSE_EVENT,
+  type PageBridgeRequestDetail,
+  type PageBridgeRequestMessage,
+  type PageBridgeResponseDetail,
+  type PageBridgeResponseMessage,
+} from "../shared/wppBridge";
+import { findComposer, readComposerText, SEND_BUTTON_SELECTOR } from "./wa";
 
-let currentProfileId = profiles[0].id;
-let bypassNextSendClick = false;
-let isReplaySendInProgress = false;
+let currentProfileId = DEFAULT_PROFILE_ID;
+let currentProfiles = cloneDefaultProfiles();
+let isSending = false;
+let requestCounter = 0;
 
-// Escapa o nome do perfil para uso seguro em regex.
+const REQUEST_TIMEOUT_MS = 5000;
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Monta a regex para detectar se a mensagem ja comeca com qualquer perfil conhecido.
-const knownPrefixPattern = new RegExp(
-  `^\\*?(?:${profiles.map((profile) => escapeRegExp(profile.name)).join("|")}):\\*?\\s*\\n`,
-);
+function buildKnownPrefixPattern(profiles: readonly Profile[]): RegExp {
+  return new RegExp(
+    `^\\*?(?:${profiles.map((profile) => escapeRegExp(getEffectiveProfileName(profile))).join("|")}):\\*?\\s*\\n`,
+  );
+}
 
-// Resolve o nome do perfil atualmente selecionado.
 function getCurrentProfileName(): string {
-  return profiles.find((profile) => profile.id === currentProfileId)?.name ?? profiles[0].name;
+  const currentProfile = currentProfiles.find((profile) => profile.id === currentProfileId);
+  return getEffectiveProfileName(currentProfile ?? currentProfiles[0]);
 }
 
-// Gera o texto final que deve aparecer no composer antes do envio.
-function buildPrefixedMessage(message: string, profileName: string): string {
-  return `*${profileName}:*\n${message}`;
+function buildOutgoingMessage(message: string): string {
+  if (buildKnownPrefixPattern(currentProfiles).test(message)) {
+    return message;
+  }
+
+  return `*${getCurrentProfileName()}:*\n${message}`;
 }
 
-// Prefixa apenas quando houver mensagem e ainda nao existir um prefixo conhecido.
-function prefixCurrentComposerMessage(): boolean {
+function getMessageFromComposer(): string | null {
   const composer = findComposer();
 
   if (!composer) {
-    return false;
+    return null;
   }
 
-  const currentMessage = readComposerText(composer).trim();
-
-  if (!currentMessage || knownPrefixPattern.test(currentMessage)) {
-    return false;
-  }
-
-  writeComposerText(composer, buildPrefixedMessage(currentMessage, getCurrentProfileName()));
-  return true;
+  const text = readComposerText(composer).trim();
+  return text || null;
 }
 
-// Reaproveita o fluxo nativo do Enter apos atualizar o conteudo do composer.
-function triggerSendAfterPrefix(): void {
-  const composer = findComposer();
+function nextRequestId(): string {
+  requestCounter += 1;
+  return `req-${Date.now()}-${requestCounter}`;
+}
 
-  if (!composer) {
+function dispatchBridgeRequest(detail: PageBridgeRequestDetail): Promise<PageBridgeResponseDetail> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      window.removeEventListener("message", handleResponse);
+      reject(new Error("Tempo esgotado aguardando resposta do bridge do WhatsApp."));
+    }, REQUEST_TIMEOUT_MS);
+
+    const handleResponse = (event: MessageEvent<PageBridgeResponseMessage>): void => {
+      if (event.source !== window || !event.data || event.data.source !== "wpp-team-tag") {
+        return;
+      }
+
+      if (event.data.type !== PAGE_BRIDGE_RESPONSE_EVENT) {
+        return;
+      }
+
+      if (event.data.payload.requestId !== detail.requestId) {
+        return;
+      }
+
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("message", handleResponse);
+      resolve(event.data.payload);
+    };
+
+    window.addEventListener("message", handleResponse);
+    const message: PageBridgeRequestMessage = {
+      source: "wpp-team-tag",
+      type: PAGE_BRIDGE_REQUEST_EVENT,
+      payload: detail,
+    };
+    window.postMessage(message, "*");
+  });
+}
+
+async function sendMessageUsingBridge(trigger: "enter" | "click"): Promise<void> {
+  if (isSending) {
     return;
   }
 
-  window.setTimeout(() => {
-    isReplaySendInProgress = true;
-    composer.focus();
+  const currentMessage = getMessageFromComposer();
 
-    composer.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Enter",
-        code: "Enter",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+  if (!currentMessage) {
+    return;
+  }
 
-    composer.dispatchEvent(
-      new KeyboardEvent("keyup", {
-        key: "Enter",
-        code: "Enter",
-        bubbles: true,
-      }),
-    );
+  isSending = true;
 
-    window.setTimeout(() => {
-      isReplaySendInProgress = false;
-    }, 0);
-  }, 50);
+  const requestId = nextRequestId();
+  const outgoingMessage = buildOutgoingMessage(currentMessage);
+
+  try {
+    const response = await dispatchBridgeRequest({
+      requestId,
+      message: outgoingMessage,
+    });
+
+    if (!response.ok) {
+      console.error("[wpp-team-tag] bridge error", {
+        trigger,
+        currentMessage,
+        outgoingMessage,
+        currentProfileId,
+        error: response.error,
+      });
+    }
+  } catch (error) {
+    console.error("[wpp-team-tag] bridge request failed", {
+      trigger,
+      currentMessage,
+      outgoingMessage,
+      currentProfileId,
+      error,
+    });
+  } finally {
+    isSending = false;
+  }
 }
 
-// Garante que o valor em memoria acompanhe alteracoes feitas pelo popup.
-async function syncInitialProfile(): Promise<void> {
-  currentProfileId = await getProfile();
+async function syncInitialState(): Promise<void> {
+  const [storedProfileId, storedProfiles] = await Promise.all([getProfile(), getProfiles()]);
+  currentProfileId = storedProfileId;
+  currentProfiles = storedProfiles;
 }
 
-// Intercepta Enter sem Shift antes do WhatsApp processar o envio.
 function handleKeydown(event: KeyboardEvent): void {
-  if (isReplaySendInProgress) {
+  if (isSending) {
     return;
   }
 
@@ -101,18 +164,13 @@ function handleKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  if (!prefixCurrentComposerMessage()) {
-    return;
-  }
-
   event.preventDefault();
   event.stopImmediatePropagation();
-  triggerSendAfterPrefix();
+  void sendMessageUsingBridge("enter");
 }
 
-// Detecta cliques no botao de envio usando captura para agir antes do app.
 function handleClick(event: MouseEvent): void {
-  if (isReplaySendInProgress) {
+  if (isSending) {
     return;
   }
 
@@ -122,38 +180,44 @@ function handleClick(event: MouseEvent): void {
     return;
   }
 
-  const sendIcon = target.closest("[data-icon='send']");
-  const clickable = sendIcon?.closest("button, [role='button']") ?? target.closest("button, [role='button']");
+  const clickable = target.closest("button, [role='button']");
 
-  if (!clickable || !clickable.querySelector("[data-icon='send']")) {
-    return;
-  }
-
-  if (!prefixCurrentComposerMessage()) {
+  if (
+    !clickable ||
+    (!clickable.matches(SEND_BUTTON_SELECTOR) && !clickable.querySelector(SEND_BUTTON_SELECTOR))
+  ) {
     return;
   }
 
   event.preventDefault();
   event.stopImmediatePropagation();
-  triggerSendAfterPrefix();
+  void sendMessageUsingBridge("click");
 }
 
 function registerStorageListener(): void {
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "local" || !changes[STORAGE_KEY]) {
+    if (areaName !== "local") {
       return;
     }
 
-    const updatedProfileId = changes[STORAGE_KEY].newValue as string | undefined;
-    currentProfileId = updatedProfileId ?? profiles[0].id;
+    if (changes[STORAGE_KEY]) {
+      const updatedProfileId = changes[STORAGE_KEY].newValue;
+      currentProfileId =
+        typeof updatedProfileId === "string" && isKnownProfileId(updatedProfileId)
+          ? updatedProfileId
+          : DEFAULT_PROFILE_ID;
+    }
+
+    if (changes[PROFILES_STORAGE_KEY]) {
+      currentProfiles = normalizeProfiles(changes[PROFILES_STORAGE_KEY].newValue);
+    }
   });
 }
 
 function init(): void {
-  void syncInitialProfile();
+  void syncInitialState();
   registerStorageListener();
 
-  // Capture = true para executar antes do listener interno do WhatsApp.
   document.addEventListener("keydown", handleKeydown, true);
   document.addEventListener("click", handleClick, true);
 }

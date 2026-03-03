@@ -1,51 +1,34 @@
-const COMPOSER_SELECTOR = 'footer [contenteditable="true"][role="textbox"]';
+const COMPOSER_SELECTORS = [
+  'footer [contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"][data-tab="10"]',
+  '[contenteditable="true"][data-tab="9"]',
+  '[contenteditable="true"][data-tab="6"]',
+  "div[contenteditable='true']",
+  "[contenteditable='true']",
+];
 
-// Localiza o campo principal de composicao do WhatsApp Web dentro do rodape do chat.
+export const SEND_BUTTON_SELECTOR =
+  '[data-testid="compose-btn-send"], button[aria-label="Enviar"], button[aria-label="Send"], button[data-testid="send"], [role="button"][title="Enviar"], [role="button"][title="Send"], [data-icon="send"], span[data-icon="send"]';
+
+function isVisible(element: HTMLElement): boolean {
+  return element.offsetParent !== null || element.isContentEditable || element.offsetHeight > 0;
+}
+
+// Localiza o composer visivel do WhatsApp Web.
 export function findComposer(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(COMPOSER_SELECTOR);
-}
+  for (const selector of COMPOSER_SELECTORS) {
+    const element = document.querySelector<HTMLElement>(selector);
 
-// Le o texto visivel do composer e normaliza espacos/quebras para facilitar o prefixo.
-export function readComposerText(composer: HTMLElement): string {
-  return composer.innerText.replace(/\u00A0/g, " ").replace(/\r\n/g, "\n");
-}
-
-// Posiciona o cursor no final apos reescrever o conteudo do contenteditable.
-function moveCursorToEnd(element: HTMLElement): void {
-  const selection = window.getSelection();
-
-  if (!selection) {
-    return;
+    if (element && isVisible(element)) {
+      return element;
+    }
   }
 
-  const range = document.createRange();
-  range.selectNodeContents(element);
-  range.collapse(false);
-
-  selection.removeAllRanges();
-  selection.addRange(range);
+  return null;
 }
 
-// Reescreve o texto do composer preservando quebras de linha e disparando input para o app reagir.
-export function writeComposerText(composer: HTMLElement, text: string): void {
-  composer.focus();
-  const lines = text.split("\n");
-  composer.replaceChildren();
-
-  lines.forEach((line, index) => {
-    composer.append(document.createTextNode(line));
-
-    if (index < lines.length - 1) {
-      composer.append(document.createElement("br"));
-    }
-  });
-
-  moveCursorToEnd(composer);
-  composer.dispatchEvent(
-    new InputEvent("input", {
-      bubbles: true,
-      cancelable: true,
-      inputType: "insertText",
-    }),
-  );
+// Le o texto visivel do composer e normaliza quebras de linha.
+export function readComposerText(composer: HTMLElement): string {
+  return composer.innerText.replace(/\u00A0/g, " ").replace(/\r\n/g, "\n");
 }

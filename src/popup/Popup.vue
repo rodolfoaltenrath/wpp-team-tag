@@ -1,18 +1,56 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { DEFAULT_PROFILE_ID, profiles } from "../shared/profiles";
-import { getProfile, setProfile } from "../shared/storage";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import {
+  DEFAULT_PROFILE_ID,
+  cloneDefaultProfiles,
+  getDefaultProfileName,
+  type Profile,
+} from "../shared/profiles";
+import { getProfile, getProfiles, setProfile, setProfiles } from "../shared/storage";
 
 const selectedProfileId = ref(DEFAULT_PROFILE_ID);
-const sampleMessage = "Olá, como posso ajudar?";
+const editableProfiles = ref<Profile[]>(cloneDefaultProfiles());
+const sampleMessage = "Ola, como posso ajudar?";
+let persistProfilesTimeoutId: number | null = null;
+
+function getDisplayName(profile: Profile): string {
+  const name = profile.name.trim();
+  return name || getDefaultProfileName(profile.id);
+}
+
+const profiles = computed(() => {
+  return editableProfiles.value.map((profile) => ({
+    ...profile,
+    name: getDisplayName(profile),
+  }));
+});
 
 const selectedProfile = computed(() => {
-  return profiles.find((profile) => profile.id === selectedProfileId.value) ?? profiles[0];
+  return profiles.value.find((profile) => profile.id === selectedProfileId.value) ?? profiles.value[0];
 });
 
 const previewMessage = computed(() => {
   return `*${selectedProfile.value.name}:*\n${sampleMessage}`;
 });
+
+function clearPersistProfilesTimeout(): void {
+  if (persistProfilesTimeoutId !== null) {
+    window.clearTimeout(persistProfilesTimeoutId);
+    persistProfilesTimeoutId = null;
+  }
+}
+
+async function persistProfiles(): Promise<void> {
+  clearPersistProfilesTimeout();
+  await setProfiles(editableProfiles.value);
+}
+
+function scheduleProfilesPersist(): void {
+  clearPersistProfilesTimeout();
+  persistProfilesTimeoutId = window.setTimeout(() => {
+    void persistProfiles();
+  }, 200);
+}
 
 async function handleProfileChange(event: Event) {
   const value = (event.target as HTMLSelectElement).value;
@@ -20,8 +58,27 @@ async function handleProfileChange(event: Event) {
   await setProfile(value);
 }
 
+function handleProfileNameInput(profileId: string, event: Event): void {
+  const value = (event.target as HTMLInputElement).value;
+  editableProfiles.value = editableProfiles.value.map((profile) => {
+    return profile.id === profileId ? { ...profile, name: value } : profile;
+  });
+
+  scheduleProfilesPersist();
+}
+
 onMounted(async () => {
-  selectedProfileId.value = await getProfile();
+  const [storedProfileId, storedProfiles] = await Promise.all([getProfile(), getProfiles()]);
+  selectedProfileId.value = storedProfileId;
+  editableProfiles.value = storedProfiles;
+});
+
+onBeforeUnmount(() => {
+  if (persistProfilesTimeoutId !== null) {
+    void setProfiles(editableProfiles.value);
+  }
+
+  clearPersistProfilesTimeout();
 });
 </script>
 
@@ -42,6 +99,22 @@ onMounted(async () => {
           </option>
         </select>
       </label>
+
+      <section class="profiles-editor">
+        <div v-for="(profile, index) in editableProfiles" :key="profile.id" class="field">
+          <span>Usuário {{ index + 1 }}</span>
+          <input
+            :value="profile.name"
+            type="text"
+            maxlength="24"
+            :placeholder="getDefaultProfileName(profile.id)"
+            @input="handleProfileNameInput(profile.id, $event)"
+            @blur="persistProfiles"
+          />
+        </div>
+
+        <p class="hint">Os 3 nomes ficam salvos automaticamente neste navegador.</p>
+      </section>
 
       <section class="preview">
         <p class="preview-label">Preview</p>
@@ -102,13 +175,20 @@ h1 {
   gap: 8px;
 }
 
+.profiles-editor {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+}
+
 .field span,
 .preview-label {
   font-size: 13px;
   font-weight: 600;
 }
 
-select {
+select,
+input {
   width: 100%;
   border: 1px solid #9dc2af;
   border-radius: 12px;
@@ -116,6 +196,13 @@ select {
   font: inherit;
   background: #fff;
   color: inherit;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #5d7869;
 }
 
 .preview {
