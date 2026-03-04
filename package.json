@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "assets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-store-assets.ps1",
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build"
+    "build": "vue-tsc --noEmit && vite build",
+    "package": "npm run assets && npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1"
   },
   "dependencies": {
     "@wppconnect/wa-js": "^3.22.1",
