@@ -35,7 +35,7 @@ let isNativeRetry = false;
 let requestCounter = 0;
 
 const REQUEST_TIMEOUT_MS = 5000;
-const NATIVE_SEND_DELAY_MS = 80;
+const NATIVE_SEND_DELAY_MS = 200;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -206,6 +206,30 @@ function triggerNativeSend(button: HTMLElement | null): void {
   }, NATIVE_SEND_DELAY_MS);
 }
 
+function isFooterComposer(composer: HTMLElement | null): boolean {
+  return Boolean(composer?.closest("footer"));
+}
+
+function isAttachmentSendContext(element: Element | null, composer: HTMLElement | null): boolean {
+  return Boolean(
+    isAttachmentContext(element, composer) ||
+      (element && !element.closest("footer")) ||
+      (composer && !isFooterComposer(composer)),
+  );
+}
+
+function getAttachmentComposer(composer: HTMLElement | null): HTMLElement | null {
+  if (!composer) {
+    return null;
+  }
+
+  if (isAttachmentContext(null, composer) || !isFooterComposer(composer)) {
+    return composer;
+  }
+
+  return null;
+}
+
 async function syncInitialState(): Promise<void> {
   const [storedProfileId, storedProfiles] = await Promise.all([getProfile(), getProfiles()]);
   currentProfileId = storedProfileId;
@@ -229,10 +253,15 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 
   const targetElement = target instanceof Element ? target : null;
-  const isSpecialSend =
-    isAttachmentContext(targetElement, composer) || isReplyContext(targetElement, composer);
+  const isAttachmentSend = isAttachmentContext(targetElement, composer);
+  const isReplySend = isReplyContext(targetElement, composer);
+  const isSpecialSend = isAttachmentSend || isReplySend;
 
-  if (isReplyContext(targetElement, composer) && !isAttachmentContext(targetElement, composer)) {
+  if (!isSpecialSend && !isFooterComposer(composer)) {
+    return;
+  }
+
+  if (isReplySend && !isAttachmentSend) {
     event.preventDefault();
     event.stopImmediatePropagation();
     void sendMessageUsingBridge("enter", { composer, useActiveQuote: true });
@@ -246,7 +275,8 @@ function handleKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  const changed = applyTagToComposer(composer, isAttachmentContext(targetElement, composer));
+  const composerToTag = isAttachmentSend ? getAttachmentComposer(composer) : composer;
+  const changed = applyTagToComposer(composerToTag, isAttachmentSend);
 
   if (!changed) {
     return;
@@ -254,7 +284,7 @@ function handleKeydown(event: KeyboardEvent): void {
 
   event.preventDefault();
   event.stopImmediatePropagation();
-  triggerNativeSend(findSendButtonNearElement(composer));
+  triggerNativeSend(findSendButtonNearElement(composerToTag ?? composer));
 }
 
 function handleClick(event: MouseEvent): void {
@@ -283,10 +313,11 @@ function handleClick(event: MouseEvent): void {
   }
 
   const composer = findComposerNearElement(clickable);
-  const isSpecialSend =
-    isAttachmentContext(clickable, composer) || isReplyContext(clickable, composer);
+  const isAttachmentSend = isAttachmentSendContext(clickable, composer);
+  const isReplySend = isReplyContext(clickable, composer);
+  const isSpecialSend = isAttachmentSend || isReplySend;
 
-  if (isReplyContext(clickable, composer) && !isAttachmentContext(clickable, composer)) {
+  if (isReplySend && !isAttachmentSend) {
     event.preventDefault();
     event.stopImmediatePropagation();
     void sendMessageUsingBridge("click", { composer, useActiveQuote: true });
@@ -300,7 +331,8 @@ function handleClick(event: MouseEvent): void {
     return;
   }
 
-  const changed = applyTagToComposer(composer, isAttachmentContext(clickable, composer));
+  const composerToTag = isAttachmentSend ? getAttachmentComposer(composer) : composer;
+  const changed = applyTagToComposer(composerToTag, isAttachmentSend);
 
   if (!changed) {
     return;
@@ -308,7 +340,9 @@ function handleClick(event: MouseEvent): void {
 
   event.preventDefault();
   event.stopImmediatePropagation();
-  triggerNativeSend(clickable instanceof HTMLElement ? clickable : findSendButtonNearElement(clickable));
+  triggerNativeSend(
+    clickable instanceof HTMLElement ? clickable : findSendButtonNearElement(composerToTag ?? clickable),
+  );
 }
 
 function registerStorageListener(): void {

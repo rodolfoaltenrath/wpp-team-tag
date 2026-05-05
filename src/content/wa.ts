@@ -124,6 +124,16 @@ function isQueryableContext(context: Element | Document | null): context is Elem
   return Boolean(context);
 }
 
+function dispatchComposerInput(composer: HTMLElement): void {
+  composer.dispatchEvent(
+    new InputEvent("input", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "insertReplacementText",
+    }),
+  );
+}
+
 // Localiza o composer visivel do WhatsApp Web.
 export function findComposer(): HTMLElement | null {
   return getVisibleComposers()[0] ?? null;
@@ -232,16 +242,9 @@ export function writeComposerText(composer: HTMLElement, text: string): boolean 
 
   if (!inserted) {
     composer.textContent = text;
-    composer.dispatchEvent(
-      new InputEvent("input", {
-        bubbles: true,
-        cancelable: true,
-        data: text,
-        inputType: "insertText",
-      }),
-    );
   }
 
+  dispatchComposerInput(composer);
   placeCaretAtEnd(composer);
   composer.dispatchEvent(new Event("change", { bubbles: true }));
 
