@@ -22,7 +22,11 @@ type WppRuntime = typeof WPP & {
   chat?: {
     getActiveChat: () => ActiveChatWithId | undefined;
     setInputText: (text: string, chatId?: unknown) => Promise<unknown>;
-    sendTextMessage: (chatId: unknown, content: string) => Promise<unknown>;
+    sendTextMessage: (
+      chatId: unknown,
+      content: string,
+      options?: { quotedMsg?: unknown },
+    ) => Promise<unknown>;
   };
   isInjected?: boolean;
   isReady?: boolean;
@@ -30,6 +34,11 @@ type WppRuntime = typeof WPP & {
 
 type ActiveChatWithId = {
   id?: unknown;
+  composeQuotedMsg?: unknown;
+  quotedMsg?: unknown;
+  quotedMsgId?: unknown;
+  quotedMsgKey?: unknown;
+  get?: (key: string) => unknown;
 };
 
 function getWppRuntime(): WppRuntime {
@@ -51,6 +60,19 @@ function resolveChatId(chat: ActiveChatWithId): unknown {
   }
 
   return id?._serialized ?? id;
+}
+
+function getModelValue(model: ActiveChatWithId, key: string): unknown {
+  return model[key as keyof ActiveChatWithId] ?? model.get?.(key);
+}
+
+function resolveActiveQuotedMessage(chat: ActiveChatWithId): unknown {
+  return (
+    getModelValue(chat, "composeQuotedMsg") ??
+    getModelValue(chat, "quotedMsg") ??
+    getModelValue(chat, "quotedMsgKey") ??
+    getModelValue(chat, "quotedMsgId")
+  );
 }
 
 function respond(detail: PageBridgeResponseDetail): void {
@@ -153,8 +175,24 @@ async function handleBridgeRequest(detail: PageBridgeRequestDetail): Promise<voi
       throw new Error("Nao foi possivel resolver o ID do chat ativo.");
     }
 
+    const options: { quotedMsg?: unknown } = {};
+
+    if (detail.useActiveQuote) {
+      const quotedMsg = resolveActiveQuotedMessage(activeChat);
+
+      if (!quotedMsg) {
+        throw new Error("Mensagem ativa de resposta nao encontrada.");
+      }
+
+      options.quotedMsg = quotedMsg;
+    }
+
     await runtime.chat.setInputText("", chatId);
-    await runtime.chat.sendTextMessage(chatId, detail.message);
+    await runtime.chat.sendTextMessage(
+      chatId,
+      detail.message,
+      Object.keys(options).length ? options : undefined,
+    );
 
     respond({
       requestId: detail.requestId,

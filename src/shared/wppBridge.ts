@@ -4,6 +4,7 @@ export const PAGE_BRIDGE_RESPONSE_EVENT = "wpp-team-tag:send-response";
 export type PageBridgeRequestDetail = {
   requestId: string;
   message: string;
+  useActiveQuote?: boolean;
 };
 
 export type PageBridgeResponseDetail = {

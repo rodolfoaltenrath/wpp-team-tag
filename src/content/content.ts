@@ -15,14 +15,27 @@ import {
   type PageBridgeResponseDetail,
   type PageBridgeResponseMessage,
 } from "../shared/wppBridge";
-import { findComposer, readComposerText, SEND_BUTTON_SELECTOR } from "./wa";
+import {
+  dismissReplyContext,
+  findComposer,
+  findComposerForTarget,
+  findComposerNearElement,
+  findSendButtonNearElement,
+  isAttachmentContext,
+  isReplyContext,
+  readComposerText,
+  SEND_BUTTON_SELECTOR,
+  writeComposerText,
+} from "./wa";
 
 let currentProfileId = DEFAULT_PROFILE_ID;
 let currentProfiles = cloneDefaultProfiles();
 let isSending = false;
+let isNativeRetry = false;
 let requestCounter = 0;
 
 const REQUEST_TIMEOUT_MS = 5000;
+const NATIVE_SEND_DELAY_MS = 80;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -30,7 +43,7 @@ function escapeRegExp(value: string): string {
 
 function buildKnownPrefixPattern(profiles: readonly Profile[]): RegExp {
   return new RegExp(
-    `^\\*?(?:${profiles.map((profile) => escapeRegExp(getEffectiveProfileName(profile))).join("|")}):\\*?\\s*\\n`,
+    `^\\*?(?:${profiles.map((profile) => escapeRegExp(getEffectiveProfileName(profile))).join("|")}):\\*?(?:\\s*\\n|\\s*$)`,
   );
 }
 
@@ -39,17 +52,19 @@ function getCurrentProfileName(): string {
   return getEffectiveProfileName(currentProfile ?? currentProfiles[0]);
 }
 
-function buildOutgoingMessage(message: string): string {
+function buildOutgoingMessage(message: string, allowTagOnly = false): string {
   if (buildKnownPrefixPattern(currentProfiles).test(message)) {
     return message;
+  }
+
+  if (!message && allowTagOnly) {
+    return `*${getCurrentProfileName()}:*`;
   }
 
   return `*${getCurrentProfileName()}:*\n${message}`;
 }
 
-function getMessageFromComposer(): string | null {
-  const composer = findComposer();
-
+function getMessageFromComposer(composer = findComposer()): string | null {
   if (!composer) {
     return null;
   }
@@ -98,12 +113,15 @@ function dispatchBridgeRequest(detail: PageBridgeRequestDetail): Promise<PageBri
   });
 }
 
-async function sendMessageUsingBridge(trigger: "enter" | "click"): Promise<void> {
+async function sendMessageUsingBridge(
+  trigger: "enter" | "click",
+  options: { composer?: HTMLElement | null; useActiveQuote?: boolean } = {},
+): Promise<void> {
   if (isSending) {
     return;
   }
 
-  const currentMessage = getMessageFromComposer();
+  const currentMessage = getMessageFromComposer(options.composer);
 
   if (!currentMessage) {
     return;
@@ -118,6 +136,7 @@ async function sendMessageUsingBridge(trigger: "enter" | "click"): Promise<void>
     const response = await dispatchBridgeRequest({
       requestId,
       message: outgoingMessage,
+      useActiveQuote: options.useActiveQuote,
     });
 
     if (!response.ok) {
@@ -128,6 +147,10 @@ async function sendMessageUsingBridge(trigger: "enter" | "click"): Promise<void>
         currentProfileId,
         error: response.error,
       });
+    }
+
+    if (response.ok && options.useActiveQuote) {
+      dismissReplyContext(options.composer ?? null);
     }
   } catch (error) {
     console.error("[wpp-team-tag] bridge request failed", {
@@ -140,6 +163,47 @@ async function sendMessageUsingBridge(trigger: "enter" | "click"): Promise<void>
   } finally {
     isSending = false;
   }
+}
+
+function applyTagToComposer(composer: HTMLElement | null, allowTagOnly: boolean): boolean {
+  if (!composer) {
+    return false;
+  }
+
+  const text = readComposerText(composer).trim();
+
+  if (!text && !allowTagOnly) {
+    return false;
+  }
+
+  const outgoingMessage = buildOutgoingMessage(text, allowTagOnly);
+
+  if (outgoingMessage === text) {
+    return false;
+  }
+
+  if (!writeComposerText(composer, outgoingMessage)) {
+    console.error("[wpp-team-tag] nao foi possivel aplicar a tag antes do envio nativo", {
+      text,
+      outgoingMessage,
+      currentProfileId,
+    });
+
+    return false;
+  }
+
+  return true;
+}
+
+function triggerNativeSend(button: HTMLElement | null): void {
+  if (!button) {
+    return;
+  }
+
+  window.setTimeout(() => {
+    isNativeRetry = true;
+    button.click();
+  }, NATIVE_SEND_DELAY_MS);
 }
 
 async function syncInitialState(): Promise<void> {
@@ -158,19 +222,48 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 
   const target = event.target;
-  const composer = findComposer();
+  const composer = findComposerForTarget(target);
 
   if (!(target instanceof Node) || !composer || !composer.contains(target)) {
     return;
   }
 
+  const targetElement = target instanceof Element ? target : null;
+  const isSpecialSend =
+    isAttachmentContext(targetElement, composer) || isReplyContext(targetElement, composer);
+
+  if (isReplyContext(targetElement, composer) && !isAttachmentContext(targetElement, composer)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void sendMessageUsingBridge("enter", { composer, useActiveQuote: true });
+    return;
+  }
+
+  if (!isSpecialSend) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void sendMessageUsingBridge("enter");
+    return;
+  }
+
+  const changed = applyTagToComposer(composer, isAttachmentContext(targetElement, composer));
+
+  if (!changed) {
+    return;
+  }
+
   event.preventDefault();
   event.stopImmediatePropagation();
-  void sendMessageUsingBridge("enter");
+  triggerNativeSend(findSendButtonNearElement(composer));
 }
 
 function handleClick(event: MouseEvent): void {
   if (isSending) {
+    return;
+  }
+
+  if (isNativeRetry) {
+    isNativeRetry = false;
     return;
   }
 
@@ -189,9 +282,33 @@ function handleClick(event: MouseEvent): void {
     return;
   }
 
+  const composer = findComposerNearElement(clickable);
+  const isSpecialSend =
+    isAttachmentContext(clickable, composer) || isReplyContext(clickable, composer);
+
+  if (isReplyContext(clickable, composer) && !isAttachmentContext(clickable, composer)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void sendMessageUsingBridge("click", { composer, useActiveQuote: true });
+    return;
+  }
+
+  if (!isSpecialSend) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void sendMessageUsingBridge("click");
+    return;
+  }
+
+  const changed = applyTagToComposer(composer, isAttachmentContext(clickable, composer));
+
+  if (!changed) {
+    return;
+  }
+
   event.preventDefault();
   event.stopImmediatePropagation();
-  void sendMessageUsingBridge("click");
+  triggerNativeSend(clickable instanceof HTMLElement ? clickable : findSendButtonNearElement(clickable));
 }
 
 function registerStorageListener(): void {
