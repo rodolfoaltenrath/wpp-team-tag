@@ -47,7 +47,7 @@ function buildKnownPrefixPattern(profiles: readonly Profile[]): RegExp {
     .join("|");
 
   return new RegExp(
-    `^(?:\\*?(?:${profileNames})\\*?:|\\*(?:${profileNames}):\\*)(?:\\s*\\n|\\s*$)`,
+    `^(?:_?\\*?(?:${profileNames})\\*?_?:|_?\\*(?:${profileNames}):\\*_?)(?:\\s*\\n|\\s*$)`,
   );
 }
 
@@ -62,10 +62,10 @@ function buildOutgoingMessage(message: string, allowTagOnly = false): string {
   }
 
   if (!message && allowTagOnly) {
-    return `*${getCurrentProfileName()}*:`;
+    return `_*${getCurrentProfileName()}*_:`;
   }
 
-  return `*${getCurrentProfileName()}*:\n${message}`;
+  return `_*${getCurrentProfileName()}*_:\n${message}`;
 }
 
 function getMessageFromComposer(composer = findComposer()): string | null {
