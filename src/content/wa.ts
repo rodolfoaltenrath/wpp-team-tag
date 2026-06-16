@@ -1,6 +1,14 @@
 const COMPOSER_SELECTORS = [
   'footer [contenteditable="true"][role="textbox"]',
+  'footer [contenteditable="true"][aria-label*="mensagem" i]',
+  'footer [contenteditable="true"][aria-label*="message" i]',
+  'footer [contenteditable="true"][aria-placeholder*="mensagem" i]',
+  'footer [contenteditable="true"][aria-placeholder*="message" i]',
   '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"][aria-label*="mensagem" i]',
+  '[contenteditable="true"][aria-label*="message" i]',
+  '[contenteditable="true"][aria-placeholder*="mensagem" i]',
+  '[contenteditable="true"][aria-placeholder*="message" i]',
   '[contenteditable="true"][data-tab="10"]',
   '[contenteditable="true"][data-tab="9"]',
   '[contenteditable="true"][data-tab="6"]',
@@ -19,12 +27,10 @@ const ATTACHMENT_CONTEXT_SELECTOR = [
 ].join(",");
 
 const REPLY_CONTEXT_SELECTOR = [
+  '[data-testid="quoted-message"]',
+  '[data-testid="quoted_msg"]',
   '[data-testid*="quoted"]',
-  '[data-testid*="reply"]',
-  '[aria-label*="resposta" i]',
-  '[aria-label*="reply" i]',
-  '[title*="resposta" i]',
-  '[title*="reply" i]',
+  '[data-testid*="quoted-msg"]',
 ].join(",");
 
 const REPLY_CANCEL_BUTTON_SELECTOR = [
@@ -45,7 +51,7 @@ const REPLY_CANCEL_BUTTON_SELECTOR = [
 ].join(",");
 
 export const SEND_BUTTON_SELECTOR =
-  '[data-testid="compose-btn-send"], button[aria-label="Enviar"], button[aria-label="Send"], button[data-testid="send"], [role="button"][title="Enviar"], [role="button"][title="Send"], [data-icon="send"], span[data-icon="send"]';
+  '[data-testid="compose-btn-send"], button[aria-label="Enviar"], button[aria-label="Send"], button[aria-label*="enviar" i], button[aria-label*="send" i], [role="button"][aria-label*="enviar" i], [role="button"][aria-label*="send" i], button[data-testid="send"], [role="button"][title="Enviar"], [role="button"][title="Send"], [role="button"][title*="enviar" i], [role="button"][title*="send" i], [data-icon="send"], [data-icon*="send" i], span[data-icon="send"], span[data-icon*="send" i]';
 
 function isVisible(element: HTMLElement): boolean {
   return element.offsetParent !== null || element.isContentEditable || element.offsetHeight > 0;
@@ -177,7 +183,11 @@ export function isAttachmentContext(element: Element | null, composer: HTMLEleme
 export function isReplyContext(element: Element | null, composer: HTMLElement | null): boolean {
   const contexts = [element?.closest("footer"), composer?.closest("footer")];
 
-  return contexts.some((context) => context?.querySelector(REPLY_CONTEXT_SELECTOR));
+  return contexts.some((context) => {
+    const replyPreview = context?.querySelector<HTMLElement>(REPLY_CONTEXT_SELECTOR);
+
+    return Boolean(replyPreview && isVisible(replyPreview) && !composer?.contains(replyPreview));
+  });
 }
 
 export function findSendButtonNearElement(element: Element | null): HTMLElement | null {
@@ -232,21 +242,19 @@ export function readComposerText(composer: HTMLElement): string {
 export function writeComposerText(composer: HTMLElement, text: string): boolean {
   composer.focus();
 
-  const selection = window.getSelection();
-  const range = document.createRange();
-  range.selectNodeContents(composer);
-  selection?.removeAllRanges();
-  selection?.addRange(range);
+  const dataTransfer = new DataTransfer();
+  dataTransfer.setData("text/plain", text);
 
-  const inserted = document.execCommand("insertText", false, text);
+  const pasteEvent = new ClipboardEvent("paste", {
+    clipboardData: dataTransfer,
+    bubbles: true,
+    cancelable: true,
+  });
 
-  if (!inserted) {
-    composer.textContent = text;
-  }
+  composer.dispatchEvent(pasteEvent);
 
   dispatchComposerInput(composer);
   placeCaretAtEnd(composer);
-  composer.dispatchEvent(new Event("change", { bubbles: true }));
 
   return readComposerText(composer).trim() === text.trim();
 }

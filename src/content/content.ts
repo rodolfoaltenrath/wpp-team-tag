@@ -62,10 +62,10 @@ function buildOutgoingMessage(message: string, allowTagOnly = false): string {
   }
 
   if (!message && allowTagOnly) {
-    return `_*${getCurrentProfileName()}*_:`;
+    return `_*${getCurrentProfileName()}:*_`;
   }
 
-  return `_*${getCurrentProfileName()}*_:\n${message}`;
+  return `_*${getCurrentProfileName()}:*_\n${message}`;
 }
 
 function getMessageFromComposer(composer = findComposer()): string | null {
@@ -275,7 +275,7 @@ function handleKeydown(event: KeyboardEvent): void {
   if (!isSpecialSend) {
     event.preventDefault();
     event.stopImmediatePropagation();
-    void sendMessageUsingBridge("enter");
+    void sendMessageUsingBridge("enter", { composer });
     return;
   }
 
@@ -331,7 +331,7 @@ function handleClick(event: MouseEvent): void {
   if (!isSpecialSend) {
     event.preventDefault();
     event.stopImmediatePropagation();
-    void sendMessageUsingBridge("click");
+    void sendMessageUsingBridge("click", { composer });
     return;
   }
 

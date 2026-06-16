@@ -13,6 +13,12 @@ let readyPromise: Promise<void> | null = null;
 let loaderRequested = false;
 
 type WppRuntime = typeof WPP & {
+  loader?: {
+    isInjected?: boolean;
+    isReady?: boolean;
+    injectLoader?: () => void;
+    onReady?: (listener: () => void, delay?: number) => void;
+  };
   webpack?: {
     isInjected?: boolean;
     isReady?: boolean;
@@ -47,8 +53,8 @@ function getWppRuntime(): WppRuntime {
 
 function getWppReadiness(runtime: WppRuntime): { isInjected: boolean; isReady: boolean } {
   return {
-    isInjected: Boolean(runtime.isInjected ?? runtime.webpack?.isInjected),
-    isReady: Boolean(runtime.isReady ?? runtime.webpack?.isReady),
+    isInjected: Boolean(runtime.isInjected ?? runtime.loader?.isInjected ?? runtime.webpack?.isInjected),
+    isReady: Boolean(runtime.isReady ?? runtime.loader?.isReady ?? runtime.webpack?.isReady),
   };
 }
 
@@ -87,10 +93,11 @@ function respond(detail: PageBridgeResponseDetail): void {
 function ensureWppLoaderInjected(): void {
   const runtime = getWppRuntime();
   const readiness = getWppReadiness(runtime);
+  const loader = runtime.loader ?? runtime.webpack;
 
-  if (!readiness.isInjected && !loaderRequested && runtime.webpack?.injectLoader) {
+  if (!readiness.isInjected && !loaderRequested && loader?.injectLoader) {
     loaderRequested = true;
-    runtime.webpack.injectLoader();
+    loader.injectLoader();
   }
 }
 
@@ -135,7 +142,8 @@ async function waitForWppReady(): Promise<void> {
     }, READY_TIMEOUT_MS);
 
     const currentRuntime = getWppRuntime();
-    currentRuntime.webpack?.onReady?.(() => {
+    const loader = currentRuntime.loader ?? currentRuntime.webpack;
+    loader?.onReady?.(() => {
       finish();
     });
 
@@ -181,10 +189,10 @@ async function handleBridgeRequest(detail: PageBridgeRequestDetail): Promise<voi
       const quotedMsg = resolveActiveQuotedMessage(activeChat);
 
       if (!quotedMsg) {
-        throw new Error("Mensagem ativa de resposta nao encontrada.");
+        console.warn("[wpp-team-tag] WA-JS nao encontrou o objeto de resposta. Enviando sem citacao.");
+      } else {
+        options.quotedMsg = quotedMsg;
       }
-
-      options.quotedMsg = quotedMsg;
     }
 
     await runtime.chat.setInputText("", chatId);
