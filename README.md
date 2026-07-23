@@ -5,7 +5,7 @@ Extensao para Chromium que prefixa mensagens do WhatsApp Web com o nome do perfi
 Exemplo de saida:
 
 ```text
-*Ana:*
+_*Ana:*_
 Ola, como posso ajudar?
 ```
 
@@ -15,6 +15,7 @@ Ola, como posso ajudar?
 - Permite editar os 3 nomes e salvar tudo em `chrome.storage.local`
 - Intercepta envio por `Enter` e por clique no botao enviar
 - Evita duplicar prefixo quando a mensagem ja comeca com um perfil conhecido
+- Preserva o fluxo nativo de respostas e anexos do WhatsApp
 - Funciona apenas em `https://web.whatsapp.com/*`
 
 ## Stack
@@ -24,13 +25,14 @@ Ola, como posso ajudar?
 - Vite
 - CRXJS
 - Manifest V3
-- `@wppconnect/wa-js` para envio estavel no contexto da pagina
+- `@wppconnect/wa-js` para enviar o texto sem alterar o editor interno do WhatsApp
 
 ## Scripts
 
 ```bash
 npm install
 npm run dev
+npm test
 npm run build
 npm run assets
 npm run package

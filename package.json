@@ -7,7 +7,8 @@
     "assets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-store-assets.ps1",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "package": "npm run assets && npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1"
+    "package": "npm run assets && npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",
+    "test": "vitest run"
   },
   "dependencies": {
     "@wppconnect/wa-js": "^4.3.0",
@@ -17,8 +18,10 @@
     "@crxjs/vite-plugin": "^2.0.0-beta.31",
     "@types/chrome": "^0.1.11",
     "@vitejs/plugin-vue": "^5.2.1",
+    "jsdom": "^29.1.1",
     "typescript": "^5.7.3",
     "vite": "^6.2.1",
+    "vitest": "^4.1.10",
     "vue-tsc": "^2.2.8"
   }
 }

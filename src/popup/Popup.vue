@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import {
   DEFAULT_PROFILE_ID,
   cloneDefaultProfiles,
@@ -11,7 +11,6 @@ import { getProfile, getProfiles, setProfile, setProfiles } from "../shared/stor
 const selectedProfileId = ref(DEFAULT_PROFILE_ID);
 const editableProfiles = ref<Profile[]>(cloneDefaultProfiles());
 const sampleMessage = "Ola, como posso ajudar?";
-let persistProfilesTimeoutId: number | null = null;
 
 function getDisplayName(profile: Profile): string {
   const name = profile.name.trim();
@@ -30,26 +29,11 @@ const selectedProfile = computed(() => {
 });
 
 const previewMessage = computed(() => {
-  return `*${selectedProfile.value.name}:*\n${sampleMessage}`;
+  return `_*${selectedProfile.value.name}:*_\n${sampleMessage}`;
 });
 
-function clearPersistProfilesTimeout(): void {
-  if (persistProfilesTimeoutId !== null) {
-    window.clearTimeout(persistProfilesTimeoutId);
-    persistProfilesTimeoutId = null;
-  }
-}
-
 async function persistProfiles(): Promise<void> {
-  clearPersistProfilesTimeout();
   await setProfiles(editableProfiles.value);
-}
-
-function scheduleProfilesPersist(): void {
-  clearPersistProfilesTimeout();
-  persistProfilesTimeoutId = window.setTimeout(() => {
-    void persistProfiles();
-  }, 200);
 }
 
 async function handleProfileChange(event: Event) {
@@ -64,21 +48,13 @@ function handleProfileNameInput(profileId: string, event: Event): void {
     return profile.id === profileId ? { ...profile, name: value } : profile;
   });
 
-  scheduleProfilesPersist();
+  void persistProfiles();
 }
 
 onMounted(async () => {
   const [storedProfileId, storedProfiles] = await Promise.all([getProfile(), getProfiles()]);
   selectedProfileId.value = storedProfileId;
   editableProfiles.value = storedProfiles;
-});
-
-onBeforeUnmount(() => {
-  if (persistProfilesTimeoutId !== null) {
-    void setProfiles(editableProfiles.value);
-  }
-
-  clearPersistProfilesTimeout();
 });
 </script>
 

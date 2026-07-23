@@ -1,4 +1,3 @@
-import * as WPP from "@wppconnect/wa-js";
 import {
   PAGE_BRIDGE_REQUEST_EVENT,
   PAGE_BRIDGE_RESPONSE_EVENT,
@@ -8,38 +7,13 @@ import {
   type PageBridgeResponseMessage,
 } from "../shared/wppBridge";
 
-const READY_TIMEOUT_MS = 10000;
-let readyPromise: Promise<void> | null = null;
+const READY_TIMEOUT_MS = 15_000;
+let runtimePromise: Promise<WppRuntime> | null = null;
+let readyPromise: Promise<WppRuntime> | null = null;
 let loaderRequested = false;
 
-type WppRuntime = typeof WPP & {
-  loader?: {
-    isInjected?: boolean;
-    isReady?: boolean;
-    injectLoader?: () => void;
-    onReady?: (listener: () => void, delay?: number) => void;
-  };
-  webpack?: {
-    isInjected?: boolean;
-    isReady?: boolean;
-    injectLoader?: () => void;
-    onReady?: (listener: () => void, delay?: number) => void;
-  };
-  chat?: {
-    getActiveChat: () => ActiveChatWithId | undefined;
-    setInputText: (text: string, chatId?: unknown) => Promise<unknown>;
-    sendTextMessage: (
-      chatId: unknown,
-      content: string,
-      options?: { quotedMsg?: unknown },
-    ) => Promise<unknown>;
-  };
-  isInjected?: boolean;
-  isReady?: boolean;
-};
-
-type ActiveChatWithId = {
-  id?: unknown;
+type ActiveChat = {
+  id?: { _serialized?: string } | string;
   composeQuotedMsg?: unknown;
   quotedMsg?: unknown;
   quotedMsgId?: unknown;
@@ -47,73 +21,76 @@ type ActiveChatWithId = {
   get?: (key: string) => unknown;
 };
 
-function getWppRuntime(): WppRuntime {
-  return ((window as Window & { WPP?: WppRuntime }).WPP ?? WPP) as WppRuntime;
-}
+type WppModule = typeof import("@wppconnect/wa-js");
 
-function getWppReadiness(runtime: WppRuntime): { isInjected: boolean; isReady: boolean } {
-  return {
-    isInjected: Boolean(runtime.isInjected ?? runtime.loader?.isInjected ?? runtime.webpack?.isInjected),
-    isReady: Boolean(runtime.isReady ?? runtime.loader?.isReady ?? runtime.webpack?.isReady),
+type WppRuntime = WppModule & {
+  loader?: {
+    isInjected?: boolean;
+    isReady?: boolean;
+    injectLoader?: () => void;
+    onReady?: (listener: () => void) => void;
   };
-}
+  chat?: {
+    getActiveChat: () => ActiveChat | undefined;
+    setInputText: (text: string, chatId?: unknown) => Promise<unknown>;
+    sendTextMessage: (
+      chatId: unknown,
+      content: string,
+      options?: { quotedMsg?: unknown; waitForAck?: boolean },
+    ) => Promise<unknown>;
+  };
+  isInjected?: boolean;
+  isReady?: boolean;
+};
 
-function resolveChatId(chat: ActiveChatWithId): unknown {
-  const id = chat.id as { _serialized?: string } | string | undefined;
+function loadRuntime(): Promise<WppRuntime> {
+  const pageRuntime = (window as Window & { WPP?: WppRuntime }).WPP;
 
-  if (typeof id === "string") {
-    return id;
+  if (pageRuntime) {
+    return Promise.resolve(pageRuntime);
   }
 
-  return id?._serialized ?? id;
+  if (!runtimePromise) {
+    runtimePromise = import("@wppconnect/wa-js").then((module) => {
+      return ((window as Window & { WPP?: WppRuntime }).WPP ?? module) as WppRuntime;
+    });
+  }
+
+  return runtimePromise;
 }
 
-function getModelValue(model: ActiveChatWithId, key: string): unknown {
-  return model[key as keyof ActiveChatWithId] ?? model.get?.(key);
+function isReady(runtime: WppRuntime): boolean {
+  return Boolean(runtime.isReady ?? runtime.loader?.isReady);
 }
 
-function resolveActiveQuotedMessage(chat: ActiveChatWithId): unknown {
-  return (
-    getModelValue(chat, "composeQuotedMsg") ??
-    getModelValue(chat, "quotedMsg") ??
-    getModelValue(chat, "quotedMsgKey") ??
-    getModelValue(chat, "quotedMsgId")
-  );
-}
-
-function respond(detail: PageBridgeResponseDetail): void {
-  const message: PageBridgeResponseMessage = {
-    source: "wpp-team-tag",
-    type: PAGE_BRIDGE_RESPONSE_EVENT,
-    payload: detail,
-  };
-  window.postMessage(message, "*");
-}
-
-function ensureWppLoaderInjected(): void {
-  const runtime = getWppRuntime();
-  const readiness = getWppReadiness(runtime);
-  const loader = runtime.loader ?? runtime.webpack;
-
-  if (!readiness.isInjected && !loaderRequested && loader?.injectLoader) {
+function ensureLoader(runtime: WppRuntime): void {
+  if (
+    !runtime.isInjected &&
+    !runtime.loader?.isInjected &&
+    !loaderRequested &&
+    runtime.loader?.injectLoader
+  ) {
     loaderRequested = true;
-    loader.injectLoader();
+    runtime.loader.injectLoader();
   }
 }
 
-async function waitForWppReady(): Promise<void> {
-  if (getWppReadiness(getWppRuntime()).isReady) {
-    return;
-  }
-
+async function waitForReady(): Promise<WppRuntime> {
   if (readyPromise) {
     return readyPromise;
   }
 
-  ensureWppLoaderInjected();
+  const runtime = await loadRuntime();
 
-  readyPromise = new Promise<void>((resolve, reject) => {
+  if (isReady(runtime)) {
+    return runtime;
+  }
+
+  ensureLoader(runtime);
+
+  readyPromise = new Promise<WppRuntime>((resolve, reject) => {
     let settled = false;
+
     const finish = (): void => {
       if (settled) {
         return;
@@ -122,10 +99,10 @@ async function waitForWppReady(): Promise<void> {
       settled = true;
       window.clearTimeout(timeoutId);
       window.clearInterval(intervalId);
-      resolve();
+      resolve(runtime);
     };
 
-    const fail = (error: Error): void => {
+    const fail = (): void => {
       if (settled) {
         return;
       }
@@ -134,100 +111,87 @@ async function waitForWppReady(): Promise<void> {
       readyPromise = null;
       window.clearTimeout(timeoutId);
       window.clearInterval(intervalId);
-      reject(error);
+      reject(new Error("WA-JS nao ficou pronto a tempo."));
     };
 
-    const timeoutId = window.setTimeout(() => {
-      fail(new Error("WA-JS nao ficou pronto a tempo."));
-    }, READY_TIMEOUT_MS);
-
-    const currentRuntime = getWppRuntime();
-    const loader = currentRuntime.loader ?? currentRuntime.webpack;
-    loader?.onReady?.(() => {
-      finish();
-    });
-
+    const timeoutId = window.setTimeout(fail, READY_TIMEOUT_MS);
     const intervalId = window.setInterval(() => {
-      if (getWppReadiness(getWppRuntime()).isReady) {
+      if (isReady(runtime)) {
         finish();
       }
     }, 100);
 
-    if (getWppReadiness(getWppRuntime()).isReady) {
-      finish();
-    }
+    runtime.loader?.onReady?.(finish);
   });
 
   return readyPromise;
 }
 
-async function handleBridgeRequest(detail: PageBridgeRequestDetail): Promise<void> {
+function getChatId(chat: ActiveChat): unknown {
+  return typeof chat.id === "string" ? chat.id : chat.id?._serialized ?? chat.id;
+}
+
+function getQuotedMessage(chat: ActiveChat): unknown {
+  const getValue = (key: string): unknown =>
+    chat[key as keyof ActiveChat] ?? chat.get?.(key);
+
+  return (
+    getValue("composeQuotedMsg") ??
+    getValue("quotedMsg") ??
+    getValue("quotedMsgKey") ??
+    getValue("quotedMsgId")
+  );
+}
+
+function respond(payload: PageBridgeResponseDetail): void {
+  const response: PageBridgeResponseMessage = {
+    source: "wpp-team-tag",
+    type: PAGE_BRIDGE_RESPONSE_EVENT,
+    payload,
+  };
+  window.postMessage(response, "*");
+}
+
+async function sendMessage(request: PageBridgeRequestDetail): Promise<void> {
   try {
-    await waitForWppReady();
+    const runtime = await waitForReady();
+    const chat = runtime.chat?.getActiveChat() as ActiveChat | undefined;
 
-    const runtime = getWppRuntime();
-
-    if (!runtime.chat) {
-      throw new Error("WA-JS chat API indisponivel.");
-    }
-
-    const activeChat = runtime.chat.getActiveChat() as ActiveChatWithId | undefined;
-
-    if (!activeChat) {
+    if (!runtime.chat || !chat) {
       throw new Error("Nenhum chat ativo encontrado.");
     }
 
-    const chatId = resolveChatId(activeChat);
+    const chatId = getChatId(chat);
 
     if (!chatId) {
-      throw new Error("Nao foi possivel resolver o ID do chat ativo.");
+      throw new Error("Nao foi possivel identificar o chat ativo.");
     }
 
-    const options: { quotedMsg?: unknown } = {};
+    const quotedMsg = request.useActiveQuote ? getQuotedMessage(chat) : undefined;
+    const options = {
+      ...(quotedMsg ? { quotedMsg } : {}),
+      waitForAck: false,
+    };
 
-    if (detail.useActiveQuote) {
-      const quotedMsg = resolveActiveQuotedMessage(activeChat);
-
-      if (!quotedMsg) {
-        console.warn("[wpp-team-tag] WA-JS nao encontrou o objeto de resposta. Enviando sem citacao.");
-      } else {
-        options.quotedMsg = quotedMsg;
-      }
-    }
-
+    await runtime.chat.sendTextMessage(chatId, request.message, options);
     await runtime.chat.setInputText("", chatId);
-    await runtime.chat.sendTextMessage(
-      chatId,
-      detail.message,
-      Object.keys(options).length ? options : undefined,
-    );
 
-    respond({
-      requestId: detail.requestId,
-      ok: true,
-    });
+    respond({ requestId: request.requestId, ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-
-    console.error("[wpp-team-tag] page bridge error", message);
-    respond({
-      requestId: detail.requestId,
-      ok: false,
-      error: message,
-    });
+    console.error("[wpp-team-tag] falha ao enviar", message);
+    respond({ requestId: request.requestId, ok: false, error: message });
   }
 }
 
-ensureWppLoaderInjected();
-
 window.addEventListener("message", (event: MessageEvent<PageBridgeRequestMessage>) => {
-  if (event.source !== window || !event.data || event.data.source !== "wpp-team-tag") {
+  if (
+    event.source !== window ||
+    event.data?.source !== "wpp-team-tag" ||
+    event.data.type !== PAGE_BRIDGE_REQUEST_EVENT
+  ) {
     return;
   }
 
-  if (event.data.type !== PAGE_BRIDGE_REQUEST_EVENT) {
-    return;
-  }
-
-  void handleBridgeRequest(event.data.payload);
+  void sendMessage(event.data.payload);
 });

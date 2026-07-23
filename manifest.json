@@ -23,6 +23,12 @@
   "content_scripts": [
     {
       "matches": ["https://web.whatsapp.com/*"],
+      "js": ["src/content/config.ts"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://web.whatsapp.com/*"],
       "js": ["src/content/page.ts"],
       "run_at": "document_idle",
       "world": "MAIN"

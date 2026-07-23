@@ -4,247 +4,118 @@ import {
   getEffectiveProfileName,
   isKnownProfileId,
   normalizeProfiles,
-  type Profile,
 } from "../shared/profiles";
 import { getProfile, getProfiles, PROFILES_STORAGE_KEY, STORAGE_KEY } from "../shared/storage";
 import {
   PAGE_BRIDGE_REQUEST_EVENT,
   PAGE_BRIDGE_RESPONSE_EVENT,
-  type PageBridgeRequestDetail,
   type PageBridgeRequestMessage,
-  type PageBridgeResponseDetail,
   type PageBridgeResponseMessage,
 } from "../shared/wppBridge";
+import { buildOutgoingMessage } from "./message";
 import {
-  dismissReplyContext,
-  findComposer,
   findComposerForTarget,
   findComposerNearElement,
-  findSendButtonNearElement,
   isAttachmentContext,
   isReplyContext,
   readComposerText,
   SEND_BUTTON_SELECTOR,
-  writeComposerText,
 } from "./wa";
+
+const REQUEST_TIMEOUT_MS = 17_000;
 
 let currentProfileId = DEFAULT_PROFILE_ID;
 let currentProfiles = cloneDefaultProfiles();
 let isSending = false;
-let isNativeRetry = false;
 let requestCounter = 0;
 
-const REQUEST_TIMEOUT_MS = 5000;
-const NATIVE_SEND_DELAY_MS = 200;
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function buildKnownPrefixPattern(profiles: readonly Profile[]): RegExp {
-  const profileNames = profiles
-    .map((profile) => escapeRegExp(getEffectiveProfileName(profile)))
-    .join("|");
-
-  return new RegExp(
-    `^(?:_?\\*?(?:${profileNames})\\*?_?:|_?\\*(?:${profileNames}):\\*_?)(?:\\s*\\n|\\s*$)`,
-  );
-}
-
 function getCurrentProfileName(): string {
-  const currentProfile = currentProfiles.find((profile) => profile.id === currentProfileId);
-  return getEffectiveProfileName(currentProfile ?? currentProfiles[0]);
-}
-
-function buildOutgoingMessage(message: string, allowTagOnly = false): string {
-  if (buildKnownPrefixPattern(currentProfiles).test(message)) {
-    return message;
-  }
-
-  if (!message && allowTagOnly) {
-    return `_*${getCurrentProfileName()}:*_`;
-  }
-
-  return `_*${getCurrentProfileName()}:*_\n${message}`;
-}
-
-function getMessageFromComposer(composer = findComposer()): string | null {
-  if (!composer) {
-    return null;
-  }
-
-  const text = readComposerText(composer).trim();
-  return text || null;
+  const profile = currentProfiles.find(({ id }) => id === currentProfileId);
+  return getEffectiveProfileName(profile ?? currentProfiles[0]);
 }
 
 function nextRequestId(): string {
   requestCounter += 1;
-  return `req-${Date.now()}-${requestCounter}`;
+  return `${Date.now()}-${requestCounter}`;
 }
 
-function dispatchBridgeRequest(detail: PageBridgeRequestDetail): Promise<PageBridgeResponseDetail> {
+function requestSend(
+  message: string,
+  useActiveQuote: boolean,
+): Promise<PageBridgeResponseMessage["payload"]> {
   return new Promise((resolve, reject) => {
-    const timeoutId = window.setTimeout(() => {
-      window.removeEventListener("message", handleResponse);
-      reject(new Error("Tempo esgotado aguardando resposta do bridge do WhatsApp."));
-    }, REQUEST_TIMEOUT_MS);
+    const requestId = nextRequestId();
 
     const handleResponse = (event: MessageEvent<PageBridgeResponseMessage>): void => {
-      if (event.source !== window || !event.data || event.data.source !== "wpp-team-tag") {
+      if (
+        event.source !== window ||
+        event.data?.source !== "wpp-team-tag" ||
+        event.data.type !== PAGE_BRIDGE_RESPONSE_EVENT ||
+        event.data.payload.requestId !== requestId
+      ) {
         return;
       }
 
-      if (event.data.type !== PAGE_BRIDGE_RESPONSE_EVENT) {
-        return;
-      }
-
-      if (event.data.payload.requestId !== detail.requestId) {
-        return;
-      }
-
-      window.clearTimeout(timeoutId);
-      window.removeEventListener("message", handleResponse);
+      cleanup();
       resolve(event.data.payload);
     };
 
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Tempo esgotado aguardando o envio pelo WhatsApp."));
+    }, REQUEST_TIMEOUT_MS);
+
+    const cleanup = (): void => {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("message", handleResponse);
+    };
+
     window.addEventListener("message", handleResponse);
-    const message: PageBridgeRequestMessage = {
+
+    const request: PageBridgeRequestMessage = {
       source: "wpp-team-tag",
       type: PAGE_BRIDGE_REQUEST_EVENT,
-      payload: detail,
+      payload: { requestId, message, useActiveQuote },
     };
-    window.postMessage(message, "*");
+    window.postMessage(request, "*");
   });
 }
 
-async function sendMessageUsingBridge(
-  trigger: "enter" | "click",
-  options: { composer?: HTMLElement | null; useActiveQuote?: boolean } = {},
+async function sendFromComposer(
+  composer: HTMLElement,
+  useActiveQuote: boolean,
 ): Promise<void> {
   if (isSending) {
     return;
   }
 
-  const currentMessage = getMessageFromComposer(options.composer);
+  const message = readComposerText(composer).trim();
 
-  if (!currentMessage) {
+  if (!message) {
     return;
   }
 
   isSending = true;
 
-  const requestId = nextRequestId();
-  const outgoingMessage = buildOutgoingMessage(currentMessage);
-
   try {
-    const response = await dispatchBridgeRequest({
-      requestId,
-      message: outgoingMessage,
-      useActiveQuote: options.useActiveQuote,
-    });
+    const outgoingMessage = buildOutgoingMessage(
+      message,
+      getCurrentProfileName(),
+      currentProfiles,
+    );
+    const response = await requestSend(outgoingMessage, useActiveQuote);
 
     if (!response.ok) {
-      console.error("[wpp-team-tag] bridge error", {
-        trigger,
-        currentMessage,
-        outgoingMessage,
-        currentProfileId,
-        error: response.error,
-      });
-    }
-
-    if (response.ok && options.useActiveQuote) {
-      dismissReplyContext(options.composer ?? null);
+      console.error("[wpp-team-tag] envio recusado", response.error);
     }
   } catch (error) {
-    console.error("[wpp-team-tag] bridge request failed", {
-      trigger,
-      currentMessage,
-      outgoingMessage,
-      currentProfileId,
-      error,
-    });
+    console.error("[wpp-team-tag] falha no bridge", error);
   } finally {
     isSending = false;
   }
 }
 
-function applyTagToComposer(composer: HTMLElement | null, allowTagOnly: boolean): boolean {
-  if (!composer) {
-    return false;
-  }
-
-  const text = readComposerText(composer).trim();
-
-  if (!text && !allowTagOnly) {
-    return false;
-  }
-
-  const outgoingMessage = buildOutgoingMessage(text, allowTagOnly);
-
-  if (outgoingMessage === text) {
-    return false;
-  }
-
-  if (!writeComposerText(composer, outgoingMessage)) {
-    console.error("[wpp-team-tag] nao foi possivel aplicar a tag antes do envio nativo", {
-      text,
-      outgoingMessage,
-      currentProfileId,
-    });
-
-    return false;
-  }
-
-  return true;
-}
-
-function triggerNativeSend(button: HTMLElement | null): void {
-  if (!button) {
-    return;
-  }
-
-  window.setTimeout(() => {
-    isNativeRetry = true;
-    button.click();
-  }, NATIVE_SEND_DELAY_MS);
-}
-
-function isFooterComposer(composer: HTMLElement | null): boolean {
-  return Boolean(composer?.closest("footer"));
-}
-
-function isAttachmentSendContext(element: Element | null, composer: HTMLElement | null): boolean {
-  return Boolean(
-    isAttachmentContext(element, composer) ||
-      (element && !element.closest("footer")) ||
-      (composer && !isFooterComposer(composer)),
-  );
-}
-
-function getAttachmentComposer(composer: HTMLElement | null): HTMLElement | null {
-  if (!composer) {
-    return null;
-  }
-
-  if (isAttachmentContext(null, composer) || !isFooterComposer(composer)) {
-    return composer;
-  }
-
-  return null;
-}
-
-async function syncInitialState(): Promise<void> {
-  const [storedProfileId, storedProfiles] = await Promise.all([getProfile(), getProfiles()]);
-  currentProfileId = storedProfileId;
-  currentProfiles = storedProfiles;
-}
-
 function handleKeydown(event: KeyboardEvent): void {
-  if (isSending) {
-    return;
-  }
-
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
     return;
   }
@@ -252,101 +123,54 @@ function handleKeydown(event: KeyboardEvent): void {
   const target = event.target;
   const composer = findComposerForTarget(target);
 
-  if (!(target instanceof Node) || !composer || !composer.contains(target)) {
-    return;
-  }
-
-  const targetElement = target instanceof Element ? target : null;
-  const isAttachmentSend = isAttachmentContext(targetElement, composer);
-  const isReplySend = isReplyContext(targetElement, composer);
-  const isSpecialSend = isAttachmentSend || isReplySend;
-
-  if (!isSpecialSend && !isFooterComposer(composer)) {
-    return;
-  }
-
-  if (isReplySend && !isAttachmentSend) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    void sendMessageUsingBridge("enter", { composer, useActiveQuote: true });
-    return;
-  }
-
-  if (!isSpecialSend) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    void sendMessageUsingBridge("enter", { composer });
-    return;
-  }
-
-  const composerToTag = isAttachmentSend ? getAttachmentComposer(composer) : composer;
-  const changed = applyTagToComposer(composerToTag, isAttachmentSend);
-
-  if (!changed) {
+  if (
+    !(target instanceof Node) ||
+    !composer ||
+    !composer.contains(target) ||
+    isAttachmentContext(target instanceof Element ? target : null, composer)
+  ) {
     return;
   }
 
   event.preventDefault();
   event.stopImmediatePropagation();
-  triggerNativeSend(findSendButtonNearElement(composerToTag ?? composer));
+
+  if (!isSending) {
+    void sendFromComposer(
+      composer,
+      isReplyContext(target instanceof Element ? target : null, composer),
+    );
+  }
 }
 
 function handleClick(event: MouseEvent): void {
-  if (isSending) {
-    return;
-  }
-
-  if (isNativeRetry) {
-    isNativeRetry = false;
-    return;
-  }
-
   const target = event.target;
 
   if (!(target instanceof Element)) {
     return;
   }
 
-  const clickable = target.closest("button, [role='button']");
+  const button = target.closest<HTMLElement>("button, [role='button']");
 
   if (
-    !clickable ||
-    (!clickable.matches(SEND_BUTTON_SELECTOR) && !clickable.querySelector(SEND_BUTTON_SELECTOR))
+    !button ||
+    (!button.matches(SEND_BUTTON_SELECTOR) && !button.querySelector(SEND_BUTTON_SELECTOR))
   ) {
     return;
   }
 
-  const composer = findComposerNearElement(clickable);
-  const isAttachmentSend = isAttachmentSendContext(clickable, composer);
-  const isReplySend = isReplyContext(clickable, composer);
-  const isSpecialSend = isAttachmentSend || isReplySend;
+  const composer = findComposerNearElement(button);
 
-  if (isReplySend && !isAttachmentSend) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    void sendMessageUsingBridge("click", { composer, useActiveQuote: true });
-    return;
-  }
-
-  if (!isSpecialSend) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    void sendMessageUsingBridge("click", { composer });
-    return;
-  }
-
-  const composerToTag = isAttachmentSend ? getAttachmentComposer(composer) : composer;
-  const changed = applyTagToComposer(composerToTag, isAttachmentSend);
-
-  if (!changed) {
+  if (!composer || isAttachmentContext(button, composer)) {
     return;
   }
 
   event.preventDefault();
   event.stopImmediatePropagation();
-  triggerNativeSend(
-    clickable instanceof HTMLElement ? clickable : findSendButtonNearElement(composerToTag ?? clickable),
-  );
+
+  if (!isSending) {
+    void sendFromComposer(composer, isReplyContext(button, composer));
+  }
 }
 
 function registerStorageListener(): void {
@@ -356,10 +180,10 @@ function registerStorageListener(): void {
     }
 
     if (changes[STORAGE_KEY]) {
-      const updatedProfileId = changes[STORAGE_KEY].newValue;
+      const profileId = changes[STORAGE_KEY].newValue;
       currentProfileId =
-        typeof updatedProfileId === "string" && isKnownProfileId(updatedProfileId)
-          ? updatedProfileId
+        typeof profileId === "string" && isKnownProfileId(profileId)
+          ? profileId
           : DEFAULT_PROFILE_ID;
     }
 
@@ -369,12 +193,11 @@ function registerStorageListener(): void {
   });
 }
 
-function init(): void {
-  void syncInitialState();
+async function init(): Promise<void> {
+  [currentProfileId, currentProfiles] = await Promise.all([getProfile(), getProfiles()]);
   registerStorageListener();
-
-  document.addEventListener("keydown", handleKeydown, true);
-  document.addEventListener("click", handleClick, true);
+  window.addEventListener("keydown", handleKeydown, true);
+  window.addEventListener("click", handleClick, true);
 }
 
-init();
+void init();
