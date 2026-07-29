@@ -14,9 +14,10 @@ import {
 } from "../shared/wppBridge";
 import { buildOutgoingMessage } from "./message";
 import {
+  findConversationComposerNearElement,
   findComposerForTarget,
-  findComposerNearElement,
   isAttachmentContext,
+  isConversationComposer,
   isReplyContext,
   readComposerText,
   SEND_BUTTON_SELECTOR,
@@ -127,6 +128,7 @@ function handleKeydown(event: KeyboardEvent): void {
     !(target instanceof Node) ||
     !composer ||
     !composer.contains(target) ||
+    !isConversationComposer(composer) ||
     isAttachmentContext(target instanceof Element ? target : null, composer)
   ) {
     return;
@@ -159,7 +161,7 @@ function handleClick(event: MouseEvent): void {
     return;
   }
 
-  const composer = findComposerNearElement(button);
+  const composer = findConversationComposerNearElement(button);
 
   if (!composer || isAttachmentContext(button, composer)) {
     return;
@@ -193,11 +195,22 @@ function registerStorageListener(): void {
   });
 }
 
-async function init(): Promise<void> {
-  [currentProfileId, currentProfiles] = await Promise.all([getProfile(), getProfiles()]);
+function syncStoredConfiguration(): void {
+  void Promise.all([getProfile(), getProfiles()])
+    .then(([profileId, profiles]) => {
+      currentProfileId = profileId;
+      currentProfiles = profiles;
+    })
+    .catch((error) => {
+      console.error("[wpp-team-tag] falha ao ler a configuracao", error);
+    });
+}
+
+function init(): void {
   registerStorageListener();
   window.addEventListener("keydown", handleKeydown, true);
   window.addEventListener("click", handleClick, true);
+  syncStoredConfiguration();
 }
 
-void init();
+init();

@@ -51,9 +51,14 @@ function loadRuntime(): Promise<WppRuntime> {
   }
 
   if (!runtimePromise) {
-    runtimePromise = import("@wppconnect/wa-js").then((module) => {
-      return ((window as Window & { WPP?: WppRuntime }).WPP ?? module) as WppRuntime;
-    });
+    runtimePromise = import("@wppconnect/wa-js")
+      .then((module) => {
+        return ((window as Window & { WPP?: WppRuntime }).WPP ?? module) as WppRuntime;
+      })
+      .catch((error) => {
+        runtimePromise = null;
+        throw error;
+      });
   }
 
   return runtimePromise;
@@ -109,6 +114,7 @@ async function waitForReady(): Promise<WppRuntime> {
 
       settled = true;
       readyPromise = null;
+      loaderRequested = false;
       window.clearTimeout(timeoutId);
       window.clearInterval(intervalId);
       reject(new Error("WA-JS nao ficou pronto a tempo."));

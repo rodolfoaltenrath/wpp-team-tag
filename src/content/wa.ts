@@ -133,6 +133,24 @@ export function findComposerNearElement(element: Element | null): HTMLElement | 
     .sort((a, b) => a.score - b.score)[0].composer;
 }
 
+export function isConversationComposer(composer: HTMLElement | null): boolean {
+  const footer = composer?.closest("footer");
+
+  return Boolean(footer && !isAttachmentContext(footer, composer));
+}
+
+export function findConversationComposerNearElement(
+  element: Element | null,
+): HTMLElement | null {
+  const footer = element?.closest<HTMLElement>("footer");
+
+  if (!footer || isAttachmentContext(element, null)) {
+    return null;
+  }
+
+  return getVisibleComposers(footer).find(isConversationComposer) ?? null;
+}
+
 export function findComposerForTarget(target: EventTarget | null): HTMLElement | null {
   return findComposerNearElement(target instanceof Element ? target : null);
 }
