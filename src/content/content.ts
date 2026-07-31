@@ -13,6 +13,7 @@ import {
   type PageBridgeResponseMessage,
 } from "../shared/wppBridge";
 import { buildOutgoingMessage } from "./message";
+import { injectRuntime } from "./runtimeInjection";
 import {
   findConversationComposerNearElement,
   findComposerForTarget,
@@ -29,6 +30,7 @@ let currentProfileId = DEFAULT_PROFILE_ID;
 let currentProfiles = cloneDefaultProfiles();
 let isSending = false;
 let requestCounter = 0;
+let runtimeInjectionPromise: Promise<void> | null = null;
 
 function getCurrentProfileName(): string {
   const profile = currentProfiles.find(({ id }) => id === currentProfileId);
@@ -38,6 +40,17 @@ function getCurrentProfileName(): string {
 function nextRequestId(): string {
   requestCounter += 1;
   return `${Date.now()}-${requestCounter}`;
+}
+
+function ensureRuntime(): Promise<void> {
+  if (!runtimeInjectionPromise) {
+    runtimeInjectionPromise = injectRuntime().catch((error) => {
+      runtimeInjectionPromise = null;
+      throw error;
+    });
+  }
+
+  return runtimeInjectionPromise;
 }
 
 function requestSend(
@@ -99,6 +112,8 @@ async function sendFromComposer(
   isSending = true;
 
   try {
+    await ensureRuntime();
+
     const outgoingMessage = buildOutgoingMessage(
       message,
       getCurrentProfileName(),

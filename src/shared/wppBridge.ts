@@ -1,5 +1,16 @@
 export const PAGE_BRIDGE_REQUEST_EVENT = "wpp-team-tag:send-request";
 export const PAGE_BRIDGE_RESPONSE_EVENT = "wpp-team-tag:send-response";
+export const RUNTIME_INJECTION_MESSAGE = "wpp-team-tag:inject-runtime";
+
+export type RuntimeInjectionRequest = {
+  type: typeof RUNTIME_INJECTION_MESSAGE;
+  runtimeScript: string;
+};
+
+export type RuntimeInjectionResponse = {
+  ok: boolean;
+  error?: string;
+};
 
 export type PageBridgeRequestDetail = {
   requestId: string;

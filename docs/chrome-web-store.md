@@ -4,7 +4,7 @@ Este projeto ja deixa prontos os artefatos tecnicos principais para a publicacao
 
 ## Arquivos prontos
 
-- pacote para upload: `release/wpp-team-tag-0.2.3.zip`
+- pacote para upload: `release/wpp-team-tag-0.2.4.zip`
 - icone da extensao 128x128: `public/icons/icon128.png`
 - small promo tile 440x280: `store-assets/chrome-web-store/small-promo-tile.png`
 - politica de privacidade: `PRIVACY.md`

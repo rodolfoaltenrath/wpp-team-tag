@@ -27,22 +27,7 @@ if ($pageSource -match "import\(") {
   throw "O bridge MAIN contem import dinamico e seria resolvido pelo dominio do WhatsApp."
 }
 
-$runtimeContentScript = $manifest.content_scripts |
-  Where-Object {
-    $_.world -eq "MAIN" -and
-    $_.run_at -eq "document_idle" -and
-    ($_.js | Where-Object { $_ -match "(^|/)runtime\.js$" })
-  } |
-  Select-Object -First 1
-
-if (-not $runtimeContentScript) {
-  throw "O runtime MAIN do WA-JS nao foi registrado em document_idle."
-}
-
-$runtimeScript = $runtimeContentScript.js |
-  Where-Object { $_ -match "(^|/)runtime\.js$" } |
-  Select-Object -First 1
-$runtimePath = Join-Path $distPath $runtimeScript
+$runtimePath = Join-Path $distPath "src/content/runtime.js"
 
 if (-not (Test-Path -LiteralPath $runtimePath)) {
   throw "O runtime autocontido do WA-JS nao foi gerado."
@@ -54,8 +39,40 @@ if ($runtimeSource -match "import\(") {
   throw "O runtime MAIN contem import dinamico e seria resolvido pelo dominio do WhatsApp."
 }
 
-if ($manifest.permissions -contains "scripting" -or $manifest.background) {
-  throw "O build Firefox ainda depende de injecao pelo background."
+$duplicatedRuntime = Get-ChildItem -LiteralPath (Join-Path $distPath "assets") |
+  Where-Object { $_.Name -match "^runtime\..*\.js$" }
+
+if ($duplicatedRuntime) {
+  throw "O build Firefox contem uma copia modular desnecessaria do WA-JS."
 }
 
-Write-Host "Build Firefox validado: bridge e WA-JS sao autocontidos e independem de background."
+if (-not ($manifest.permissions -contains "scripting")) {
+  throw "A permissao scripting necessaria para a injecao sob demanda nao foi gerada."
+}
+
+$backgroundScript = $manifest.background.scripts | Select-Object -First 1
+
+if ($backgroundScript -ne "firefox/background.js") {
+  throw "O background classico do Firefox nao foi registrado diretamente."
+}
+
+if (Test-Path -LiteralPath (Join-Path $distPath "service-worker-loader.js")) {
+  throw "O build Firefox ainda contem o loader intermediario do background."
+}
+
+$backgroundPath = Join-Path $distPath $backgroundScript
+$backgroundSource = Get-Content -LiteralPath $backgroundPath -Raw
+
+if ($backgroundSource -match "(^|[;\r\n])\s*import[\s({]" -or
+    $backgroundSource -notmatch "runtime\.onMessage\.addListener") {
+  throw "O listener do background nao esta registrado de forma sincrona."
+}
+
+$eagerRuntime = $manifest.content_scripts |
+  Where-Object { $_.js | Where-Object { $_ -match "(^|/)runtime\.js$" } }
+
+if ($eagerRuntime) {
+  throw "O WA-JS nao pode ser carregado antecipadamente como content script."
+}
+
+Write-Host "Build Firefox validado: WA-JS autocontido com injecao sob demanda e listener sincrono."
