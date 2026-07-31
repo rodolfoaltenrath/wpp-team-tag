@@ -1,6 +1,6 @@
 # Politica de Privacidade - WPP Team Tag
 
-Ultima atualizacao: 3 de marco de 2026
+Ultima atualizacao: 30 de julho de 2026
 
 ## Resumo
 
@@ -15,8 +15,8 @@ O WPP Team Tag processa dados localmente no navegador para prefixar mensagens en
 
 ## Como esses dados sao usados
 
-- os nomes dos perfis e o perfil selecionado sao armazenados em `chrome.storage.local`
-- o texto digitado e processado localmente para montar a mensagem final no formato `*Nome:*\nMensagem`
+- os nomes dos perfis e o perfil selecionado sao armazenados pela API local da extensao no navegador
+- o texto digitado e processado localmente para montar a mensagem final no formato `_*Nome:*_\nMensagem`
 - a extensao aciona o proprio WhatsApp Web para enviar a mensagem ja prefixada usando a sessao autenticada do usuario
 
 ## O que a extensao nao faz
@@ -31,6 +31,10 @@ O WPP Team Tag processa dados localmente no navegador para prefixar mensagens en
 
 O envio da mensagem acontece dentro do proprio WhatsApp Web. Portanto, quando o usuario confirma o envio, a mensagem segue o fluxo normal do WhatsApp/Meta, conforme os termos e politicas desses servicos.
 
+No Firefox, a tela de instalacao informa que o nome do perfil e a mensagem sao dados necessarios
+para essa operacao. Essa declaracao se refere exclusivamente ao envio solicitado pelo usuario ao
+WhatsApp; a extensao nao transmite esses dados ao desenvolvedor.
+
 ## Retencao
 
 - os nomes dos perfis permanecem salvos localmente no navegador ate que o usuario os altere ou remova a extensao
@@ -43,4 +47,4 @@ O envio da mensagem acontece dentro do proprio WhatsApp Web. Portanto, quando o 
 
 ## Contato
 
-Para duvidas sobre suporte ou privacidade, utilize o contato informado na pagina publica da extensao na Chrome Web Store.
+Para duvidas sobre suporte ou privacidade, utilize o contato informado na pagina publica da extensao na loja do navegador.

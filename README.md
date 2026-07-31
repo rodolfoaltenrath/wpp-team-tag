@@ -1,6 +1,6 @@
 # WPP Team Tag
 
-Extensao para Chromium que prefixa mensagens do WhatsApp Web com o nome do perfil selecionado.
+Extensao para Chrome e Firefox que prefixa mensagens do WhatsApp Web com o nome do perfil selecionado.
 
 Exemplo de saida:
 
@@ -36,6 +36,7 @@ npm test
 npm run build
 npm run assets
 npm run package
+npm run package:firefox
 ```
 
 ## Desenvolvimento local
@@ -49,6 +50,20 @@ npm run package
 7. Abra `https://web.whatsapp.com/`
 8. Escolha o perfil no popup e teste o envio
 
+No Firefox 140 ou mais recente:
+
+1. Rode `npm run build:firefox`
+2. Abra `about:debugging#/runtime/this-firefox`
+3. Clique em `Carregar extensão temporária`
+4. Selecione `dist-firefox/manifest.json`
+5. Abra `https://web.whatsapp.com/`
+
+Também é possível abrir um perfil temporário automaticamente com:
+
+```bash
+npm run run:firefox
+```
+
 ## Empacotamento
 
 Para gerar o zip pronto para submissao na Chrome Web Store:
@@ -60,8 +75,12 @@ npm run package
 Arquivos gerados:
 
 - pacote da extensao: `release/wpp-team-tag-<version>.zip`
+- pacote Firefox para validação ou envio à Mozilla: `release/firefox/*.zip`
 - icone 128x128: `public/icons/icon128.png`
 - small promo tile: `store-assets/chrome-web-store/small-promo-tile.png`
+
+O Firefox comum exige que o pacote seja assinado pela Mozilla para instalação permanente.
+Consulte [docs/firefox.md](docs/firefox.md) para gerar o XPI assinado.
 
 ## Publicacao na Chrome Web Store
 
