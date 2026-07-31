@@ -7,6 +7,8 @@ dist-firefox/
 .vite/
 release/
 package/
+web-ext-artifacts/
+coverage/
 *.tgz
 
 # Logs
@@ -31,4 +33,9 @@ Thumbs.db
 
 # Packaged artifacts
 *.zip
+*.xpi
+*.crx
 *.rar
+
+# Local signing keys
+*.pem

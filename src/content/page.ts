@@ -50,6 +50,10 @@ function loadRuntime(): Promise<WppRuntime> {
     return Promise.resolve(pageRuntime);
   }
 
+  if (__FIREFOX__) {
+    return Promise.reject(new Error("WA-JS ainda nao foi injetado no Firefox."));
+  }
+
   if (!runtimePromise) {
     runtimePromise = import("@wppconnect/wa-js")
       .then((module) => {

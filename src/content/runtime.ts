@@ -1,0 +1,1 @@
+import "@wppconnect/wa-js";
