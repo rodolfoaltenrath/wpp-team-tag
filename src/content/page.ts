@@ -1,6 +1,8 @@
 import {
+  PAGE_BRIDGE_READY_EVENT,
   PAGE_BRIDGE_REQUEST_EVENT,
   PAGE_BRIDGE_RESPONSE_EVENT,
+  type PageBridgeReadyMessage,
   type PageBridgeRequestDetail,
   type PageBridgeRequestMessage,
   type PageBridgeResponseDetail,
@@ -8,9 +10,13 @@ import {
 } from "../shared/wppBridge";
 
 const READY_TIMEOUT_MS = 15_000;
+const WARMUP_DELAY_MS = 750;
+const WARMUP_RETRY_DELAY_MS = 5_000;
+const MAX_WARMUP_ATTEMPTS = 3;
 let runtimePromise: Promise<WppRuntime> | null = null;
 let readyPromise: Promise<WppRuntime> | null = null;
 let loaderRequested = false;
+let warmupAttempts = 0;
 
 type ActiveChat = {
   id?: { _serialized?: string } | string;
@@ -162,6 +168,42 @@ function respond(payload: PageBridgeResponseDetail): void {
   window.postMessage(response, "*");
 }
 
+function announceReady(): void {
+  const message: PageBridgeReadyMessage = {
+    source: "wpp-team-tag",
+    type: PAGE_BRIDGE_READY_EVENT,
+  };
+  window.postMessage(message, "*");
+}
+
+function warmRuntime(): void {
+  warmupAttempts += 1;
+
+  void waitForReady()
+    .then(() => {
+      announceReady();
+    })
+    .catch((error) => {
+      console.error("[wpp-team-tag] runtime indisponivel", error);
+
+      if (warmupAttempts < MAX_WARMUP_ATTEMPTS) {
+        window.setTimeout(warmRuntime, WARMUP_RETRY_DELAY_MS);
+      }
+    });
+}
+
+function scheduleRuntimeWarmup(): void {
+  const schedule = (): void => {
+    window.setTimeout(warmRuntime, WARMUP_DELAY_MS);
+  };
+
+  if (document.readyState === "complete") {
+    schedule();
+  } else {
+    window.addEventListener("load", schedule, { once: true });
+  }
+}
+
 async function sendMessage(request: PageBridgeRequestDetail): Promise<void> {
   try {
     const runtime = await waitForReady();
@@ -205,3 +247,5 @@ window.addEventListener("message", (event: MessageEvent<PageBridgeRequestMessage
 
   void sendMessage(event.data.payload);
 });
+
+scheduleRuntimeWarmup();

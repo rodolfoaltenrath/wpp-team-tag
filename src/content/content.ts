@@ -7,11 +7,14 @@ import {
 } from "../shared/profiles";
 import { getProfile, getProfiles, PROFILES_STORAGE_KEY, STORAGE_KEY } from "../shared/storage";
 import {
+  PAGE_BRIDGE_READY_EVENT,
   PAGE_BRIDGE_REQUEST_EVENT,
   PAGE_BRIDGE_RESPONSE_EVENT,
+  type PageBridgeReadyMessage,
   type PageBridgeRequestMessage,
   type PageBridgeResponseMessage,
 } from "../shared/wppBridge";
+import { canInterceptSend } from "./interception";
 import { buildOutgoingMessage } from "./message";
 import { injectRuntime } from "./runtimeInjection";
 import {
@@ -24,13 +27,14 @@ import {
   SEND_BUTTON_SELECTOR,
 } from "./wa";
 
-const REQUEST_TIMEOUT_MS = 17_000;
+const REQUEST_TIMEOUT_MS = 8_000;
 
 let currentProfileId = DEFAULT_PROFILE_ID;
 let currentProfiles = cloneDefaultProfiles();
 let isSending = false;
 let requestCounter = 0;
 let runtimeInjectionPromise: Promise<void> | null = null;
+let runtimeReady = false;
 
 function getCurrentProfileName(): string {
   const profile = currentProfiles.find(({ id }) => id === currentProfileId);
@@ -136,6 +140,11 @@ function handleKeydown(event: KeyboardEvent): void {
     return;
   }
 
+  // Nao bloqueia o envio nativo se o WA-JS ainda estiver carregando ou falhar.
+  if (!canInterceptSend(runtimeReady)) {
+    return;
+  }
+
   const target = event.target;
   const composer = findComposerForTarget(target);
 
@@ -161,6 +170,11 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 function handleClick(event: MouseEvent): void {
+  // Mantem o WhatsApp utilizavel mesmo se a integracao nao inicializar.
+  if (!canInterceptSend(runtimeReady)) {
+    return;
+  }
+
   const target = event.target;
 
   if (!(target instanceof Element)) {
@@ -188,6 +202,18 @@ function handleClick(event: MouseEvent): void {
   if (!isSending) {
     void sendFromComposer(composer, isReplyContext(button, composer));
   }
+}
+
+function registerRuntimeReadyListener(): void {
+  window.addEventListener("message", (event: MessageEvent<PageBridgeReadyMessage>) => {
+    if (
+      event.source === window &&
+      event.data?.source === "wpp-team-tag" &&
+      event.data.type === PAGE_BRIDGE_READY_EVENT
+    ) {
+      runtimeReady = true;
+    }
+  });
 }
 
 function registerStorageListener(): void {
@@ -222,10 +248,16 @@ function syncStoredConfiguration(): void {
 }
 
 function init(): void {
+  registerRuntimeReadyListener();
   registerStorageListener();
   window.addEventListener("keydown", handleKeydown, true);
   window.addEventListener("click", handleClick, true);
   syncStoredConfiguration();
+
+  // No Firefox isto injeta o bundle; no Chromium apenas prepara a mesma rotina.
+  void ensureRuntime().catch((error) => {
+    console.error("[wpp-team-tag] falha ao preparar o runtime", error);
+  });
 }
 
 init();

@@ -1,5 +1,6 @@
 export const PAGE_BRIDGE_REQUEST_EVENT = "wpp-team-tag:send-request";
 export const PAGE_BRIDGE_RESPONSE_EVENT = "wpp-team-tag:send-response";
+export const PAGE_BRIDGE_READY_EVENT = "wpp-team-tag:runtime-ready";
 export const RUNTIME_INJECTION_MESSAGE = "wpp-team-tag:inject-runtime";
 
 export type RuntimeInjectionRequest = {
@@ -34,4 +35,9 @@ export type PageBridgeResponseMessage = {
   source: "wpp-team-tag";
   type: typeof PAGE_BRIDGE_RESPONSE_EVENT;
   payload: PageBridgeResponseDetail;
+};
+
+export type PageBridgeReadyMessage = {
+  source: "wpp-team-tag";
+  type: typeof PAGE_BRIDGE_READY_EVENT;
 };
