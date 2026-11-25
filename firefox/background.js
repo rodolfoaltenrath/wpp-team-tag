@@ -26,8 +26,15 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       files: [message.runtimeScript],
       world: "MAIN",
     })
+    .then(() => extensionApi.scripting.executeScript({
+      target: { tabId, frameIds: [sender.frameId ?? 0] },
+      world: "MAIN",
+      func: () => Boolean(window.WPP),
+    }))
     .then(
-      () => ({ ok: true }),
+      (results) => results.some(({ result }) => result === true)
+        ? { ok: true }
+        : { ok: false, error: "O script executou, mas o WA-JS nao ficou disponivel na pagina." },
       (error) => ({
         ok: false,
         error: error instanceof Error ? error.message : String(error),

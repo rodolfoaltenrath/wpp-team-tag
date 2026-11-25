@@ -79,6 +79,9 @@ Use um build de producao. Nao distribua o repositorio nem uma pasta gerada por
   O ZIP sem assinatura serve para submissao ou teste temporario. Requer Firefox 140+.
 - Apos instalar ou atualizar, recarregue as abas abertas do WhatsApp Web e confira
   se o navegador concedeu a extensao acesso a `https://web.whatsapp.com/`.
+- No Edge, com o WhatsApp aberto, confira tambem a chave de permitir extensoes
+  neste site no menu de Extensoes. Desativar essa chave bloqueia a execucao mesmo
+  quando o WhatsApp esta listado nas permissoes da extensao.
 - Os nomes dos perfis ficam em `storage.local`: configure-os em cada navegador.
 
 O bridge MAIN e o WA-JS sao gerados como scripts autocontidos nos dois builds.
