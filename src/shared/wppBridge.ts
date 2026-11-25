@@ -1,6 +1,7 @@
 export const PAGE_BRIDGE_REQUEST_EVENT = "wpp-team-tag:send-request";
 export const PAGE_BRIDGE_RESPONSE_EVENT = "wpp-team-tag:send-response";
 export const PAGE_BRIDGE_READY_EVENT = "wpp-team-tag:runtime-ready";
+export const PAGE_BRIDGE_STATUS_EVENT = "wpp-team-tag:runtime-status";
 export const RUNTIME_INJECTION_MESSAGE = "wpp-team-tag:inject-runtime";
 
 export type RuntimeInjectionRequest = {

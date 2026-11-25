@@ -2,6 +2,7 @@ import {
   PAGE_BRIDGE_READY_EVENT,
   PAGE_BRIDGE_REQUEST_EVENT,
   PAGE_BRIDGE_RESPONSE_EVENT,
+  PAGE_BRIDGE_STATUS_EVENT,
   type PageBridgeReadyMessage,
   type PageBridgeRequestDetail,
   type PageBridgeRequestMessage,
@@ -12,11 +13,9 @@ import {
 const READY_TIMEOUT_MS = 15_000;
 const WARMUP_DELAY_MS = 750;
 const WARMUP_RETRY_DELAY_MS = 5_000;
-const MAX_WARMUP_ATTEMPTS = 3;
-let runtimePromise: Promise<WppRuntime> | null = null;
 let readyPromise: Promise<WppRuntime> | null = null;
 let loaderRequested = false;
-let warmupAttempts = 0;
+let runtimeReady = false;
 
 type ActiveChat = {
   id?: { _serialized?: string } | string;
@@ -56,22 +55,7 @@ function loadRuntime(): Promise<WppRuntime> {
     return Promise.resolve(pageRuntime);
   }
 
-  if (__FIREFOX__) {
-    return Promise.reject(new Error("WA-JS ainda nao foi injetado no Firefox."));
-  }
-
-  if (!runtimePromise) {
-    runtimePromise = import("@wppconnect/wa-js")
-      .then((module) => {
-        return ((window as Window & { WPP?: WppRuntime }).WPP ?? module) as WppRuntime;
-      })
-      .catch((error) => {
-        runtimePromise = null;
-        throw error;
-      });
-  }
-
-  return runtimePromise;
+  return Promise.reject(new Error("WA-JS ainda nao foi injetado."));
 }
 
 function isReady(runtime: WppRuntime): boolean {
@@ -137,7 +121,7 @@ async function waitForReady(): Promise<WppRuntime> {
       }
     }, 100);
 
-    runtime.loader?.onReady?.(finish);
+    // O polling e removido no timeout; callbacks onReady nao podem ser removidos.
   });
 
   return readyPromise;
@@ -177,31 +161,21 @@ function announceReady(): void {
 }
 
 function warmRuntime(): void {
-  warmupAttempts += 1;
-
   void waitForReady()
     .then(() => {
+      runtimeReady = true;
       announceReady();
     })
     .catch((error) => {
       console.error("[wpp-team-tag] runtime indisponivel", error);
 
-      if (warmupAttempts < MAX_WARMUP_ATTEMPTS) {
-        window.setTimeout(warmRuntime, WARMUP_RETRY_DELAY_MS);
-      }
+      window.setTimeout(warmRuntime, WARMUP_RETRY_DELAY_MS);
     });
 }
 
 function scheduleRuntimeWarmup(): void {
-  const schedule = (): void => {
-    window.setTimeout(warmRuntime, WARMUP_DELAY_MS);
-  };
-
-  if (document.readyState === "complete") {
-    schedule();
-  } else {
-    window.addEventListener("load", schedule, { once: true });
-  }
+  // Nao depende do evento load nem de um login rapido em uma instalacao nova.
+  window.setTimeout(warmRuntime, WARMUP_DELAY_MS);
 }
 
 async function sendMessage(request: PageBridgeRequestDetail): Promise<void> {
@@ -237,6 +211,14 @@ async function sendMessage(request: PageBridgeRequestDetail): Promise<void> {
 }
 
 window.addEventListener("message", (event: MessageEvent<PageBridgeRequestMessage>) => {
+  if (
+    event.source === window &&
+    event.data?.source === "wpp-team-tag" &&
+    (event.data.type as string) === PAGE_BRIDGE_STATUS_EVENT
+  ) {
+    if (runtimeReady) announceReady();
+    return;
+  }
   if (
     event.source !== window ||
     event.data?.source !== "wpp-team-tag" ||

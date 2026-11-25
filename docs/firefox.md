@@ -6,6 +6,10 @@ A extensão usa Manifest V3, scripts no contexto `MAIN` e a declaração atual d
 Firefox. Por isso, o build declara Firefox 140 ou mais recente e também funciona na linha ESR 140.
 O mesmo código e comportamento do Chrome são usados nos dois navegadores.
 
+Nos dois builds, o WA-JS e injetado pelo background com `scripting.executeScript`
+e o bridge MAIN e autocontido. A inicializacao tenta novamente enquanto o runtime
+nao estiver pronto, sem limite de tres tentativas para login ou carregamento lento.
+
 O manifesto declara o ID estável `wpp-team-tag@altenrath.dev`. Também declara o nome do perfil
 e a mensagem como dados necessários, pois eles são enviados ao próprio WhatsApp quando o usuário
 confirma o envio. Nenhum desses dados é enviado ao desenvolvedor.

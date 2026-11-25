@@ -10,6 +10,7 @@ import {
   PAGE_BRIDGE_READY_EVENT,
   PAGE_BRIDGE_REQUEST_EVENT,
   PAGE_BRIDGE_RESPONSE_EVENT,
+  PAGE_BRIDGE_STATUS_EVENT,
   type PageBridgeReadyMessage,
   type PageBridgeRequestMessage,
   type PageBridgeResponseMessage,
@@ -28,6 +29,7 @@ import {
 } from "./wa";
 
 const REQUEST_TIMEOUT_MS = 8_000;
+const RUNTIME_RETRY_DELAY_MS = 5_000;
 
 let currentProfileId = DEFAULT_PROFILE_ID;
 let currentProfiles = cloneDefaultProfiles();
@@ -254,10 +256,24 @@ function init(): void {
   window.addEventListener("click", handleClick, true);
   syncStoredConfiguration();
 
-  // No Firefox isto injeta o bundle; no Chromium apenas prepara a mesma rotina.
-  void ensureRuntime().catch((error) => {
-    console.error("[wpp-team-tag] falha ao preparar o runtime", error);
-  });
+  // Recupera falhas transitorias e o anuncio de prontidao anterior ao listener.
+  const prepareRuntime = (): void => {
+    if (runtimeReady) return;
+    void ensureRuntime()
+      .then(() => {
+        window.postMessage({
+          source: "wpp-team-tag",
+          type: PAGE_BRIDGE_STATUS_EVENT,
+        }, "*");
+      })
+      .catch((error) => {
+        console.error("[wpp-team-tag] falha ao preparar o runtime", error);
+      })
+      .finally(() => {
+        if (!runtimeReady) window.setTimeout(prepareRuntime, RUNTIME_RETRY_DELAY_MS);
+      });
+  };
+  prepareRuntime();
 }
 
 init();

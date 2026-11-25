@@ -66,6 +66,26 @@ npm run run:firefox
 
 ## Empacotamento
 
+### Instalar em outros computadores
+
+Use um build de producao. Nao distribua o repositorio nem uma pasta gerada por
+`npm run dev`: o modo de desenvolvimento depende do servidor Vite do computador.
+
+- Chromium (Chrome, Edge, Brave): gere com `npm run build`, copie a pasta `dist`
+  inteira e use **Carregar sem compactacao** no modo de desenvolvedor. Requer
+  Chromium 111 ou mais recente. O ZIP da Chrome Web Store e para submissao na loja.
+- Firefox: gere com `npm run package:firefox`. Para instalacao permanente no
+  Firefox comum, distribua o XPI assinado gerado por `npm run sign:firefox`.
+  O ZIP sem assinatura serve para submissao ou teste temporario. Requer Firefox 140+.
+- Apos instalar ou atualizar, recarregue as abas abertas do WhatsApp Web e confira
+  se o navegador concedeu a extensao acesso a `https://web.whatsapp.com/`.
+- Os nomes dos perfis ficam em `storage.local`: configure-os em cada navegador.
+
+O bridge MAIN e o WA-JS sao gerados como scripts autocontidos nos dois builds.
+O carregamento nao depende de imports dinamicos sujeitos ao contexto e a politica
+de seguranca do WhatsApp. A inicializacao continua tentando enquanto o login ou
+o carregamento estiver pendente, inclusive em uma instalacao nova.
+
 Para gerar o zip pronto para submissao na Chrome Web Store:
 
 ```bash

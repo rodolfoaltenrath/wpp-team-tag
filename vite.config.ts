@@ -4,12 +4,12 @@ import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import manifest from "./manifest.json";
 
-function firefoxBackgroundPlugin(): CrxPlugin {
+function runtimeBundlePlugin(isFirefox: boolean): CrxPlugin {
   const fileName = "firefox/background.js";
   const source = readFileSync(new URL(fileName, import.meta.url), "utf8");
 
   return {
-    name: "firefox-classic-background",
+    name: "standalone-runtime-background",
     apply: "build",
     enforce: "post",
     generateBundle(_options, bundle) {
@@ -23,6 +23,7 @@ function firefoxBackgroundPlugin(): CrxPlugin {
       }
     },
     renderCrxManifest(outputManifest, bundle) {
+      if (!isFirefox) return outputManifest;
       delete bundle["service-worker-loader.js"];
       this.emitFile({ type: "asset", fileName, source });
 
@@ -39,12 +40,18 @@ function firefoxBackgroundPlugin(): CrxPlugin {
 // O CRXJS usa o manifest como fonte da verdade para gerar a extensao.
 export default defineConfig(({ mode }) => {
   const isFirefox = mode === "firefox";
+  const { browser_specific_settings, ...chromiumManifest } = manifest;
   const targetManifest = isFirefox
     ? {
         ...manifest,
         permissions: [...manifest.permissions, "scripting"],
       }
-    : manifest;
+    : {
+        ...chromiumManifest,
+        minimum_chrome_version: "111",
+        permissions: [...manifest.permissions, "scripting"],
+        background: { service_worker: "firefox/background.js" },
+      };
 
   return {
     plugins: [
@@ -52,31 +59,14 @@ export default defineConfig(({ mode }) => {
       crx({
         manifest: targetManifest as ManifestV3Export,
         browser: isFirefox ? "firefox" : "chrome",
-        ...(isFirefox
-          ? {
-              contentScripts: {
-                standaloneFiles: ["src/content/page.ts"],
-              },
-            }
-          : {}),
+        contentScripts: {
+          standaloneFiles: ["src/content/page.ts"],
+        },
       }),
-      ...(isFirefox ? [firefoxBackgroundPlugin()] : []),
+      runtimeBundlePlugin(isFirefox),
     ],
     build: {
       outDir: isFirefox ? "dist-firefox" : "dist",
-    },
-    resolve: {
-      alias: isFirefox
-        ? [
-            {
-              find: "./runtimeInjection",
-              replacement: "/src/content/firefoxRuntime.ts",
-            },
-          ]
-        : [],
-    },
-    define: {
-      __FIREFOX__: JSON.stringify(isFirefox),
     },
   };
 });
